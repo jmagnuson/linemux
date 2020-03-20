@@ -163,6 +163,11 @@ impl MuxedLines {
         }
     }
 
+    fn reader_exists(&self, path: &PathBuf) -> bool {
+        // Make sure there isn't already a reader for the file
+        self.readers.contains_key(path) || self.pending_readers.contains(path)
+    }
+
     /// Adds a given file to the lines watch, allowing for files which do not
     /// yet exist.
     ///
@@ -176,6 +181,10 @@ impl MuxedLines {
             .events
             .add_file(&source)
             .map_err(|e| io::Error::new(io::ErrorKind::AlreadyExists, format!("{:?}", e)))?;
+
+        if self.reader_exists(&source) {
+            return Ok(source);
+        }
 
         if !source.exists() {
             let didnt_exist = self.pending_readers.insert(source.clone());
