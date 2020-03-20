@@ -20,7 +20,7 @@ use tokio::sync::mpsc;
 /// filesystem events are proxied. Functionality such as async/await support,
 /// and nonexistent file registration are added.
 ///
-/// [`notify::Watcher`]: ../notify/trait.Watcher.html
+/// [`notify::Watcher`]: https://docs.rs/notify/5.0.0-pre.2/notify/trait.Watcher.html
 pub struct MuxedEvents {
     inner: notify::RecommendedWatcher,
     watched_directories: HashMap<PathBuf, usize>,

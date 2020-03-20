@@ -139,7 +139,7 @@ pin_project! {
 ///   4. Returns a `Poll::Ready` with the set of lines that could be read, via
 ///      [`LineSet`].
 ///
-/// [`futures::Stream`]: ../futures_core/stream/trait.Stream.html
+/// [`futures::Stream`]: https://docs.rs/futures/0.3/futures/stream/trait.Stream.html
 /// [`MuxedEvents`]: struct.MuxedEvents.html
 /// [`LineSet`]: struct.LineSet.html
 pub struct MuxedLines {
