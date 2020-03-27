@@ -248,7 +248,16 @@ fn handle_event_internal(
 
     match &event.kind {
         // Assumes starting tail position of 0
-        notify::EventKind::Create(notify::event::CreateKind::File) => {
+        notify::EventKind::Create(create_event) => {
+            // Windows returns `Any` for file creation, so handle that
+            match (cfg!(target_os = "windows"), create_event) {
+                (_, notify::event::CreateKind::File) => {}
+                (true, notify::event::CreateKind::Any) => {}
+                (_, _) => {
+                    return None;
+                }
+            }
+
             for path in &event.paths {
                 let _present = pending_readers.remove(path);
 
@@ -262,7 +271,16 @@ fn handle_event_internal(
         }
 
         // Resets the reader to the beginning of the file if rotated (size < pos)
-        notify::EventKind::Modify(notify::event::ModifyKind::Data(_)) => {
+        notify::EventKind::Modify(modify_event) => {
+            // Windows returns `Any` for file modification, so handle that
+            match (cfg!(target_os = "windows"), modify_event) {
+                (_, notify::event::ModifyKind::Data(_)) => {}
+                (true, notify::event::ModifyKind::Any) => {}
+                (_, _) => {
+                    return None;
+                }
+            }
+
             // TODO: Currently assumes entry exists in `readers` for given path
 
             for path in &event.paths {
