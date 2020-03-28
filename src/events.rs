@@ -11,8 +11,18 @@ use std::task;
 use futures_util::pin_mut;
 use futures_util::stream::{Stream as FuturesStream, StreamExt};
 use notify;
-use thiserror::Error;
 use tokio::sync::mpsc;
+
+fn notify_to_io_error(e: notify::Error) -> io::Error {
+    match e.kind {
+        notify::ErrorKind::Io(io_err) => io_err,
+        _ => {
+            // Runtime event errors should only be std::io, but
+            // need to handle this case anyway.
+            io::Error::new(io::ErrorKind::Other, e)
+        }
+    }
+}
 
 /// Manages filesystem event watches, and can be polled to receive new events.
 ///
@@ -42,19 +52,9 @@ impl Debug for MuxedEvents {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("Failed to add path to watch")]
-    AddFailure,
-    #[error("Failed to remove path from watch")]
-    RemoveFailure,
-    #[error("Error receiving event: {0}")]
-    Event(#[from] std::io::Error),
-}
-
 impl MuxedEvents {
     /// Constructs a new `MuxedEvents` instance.
-    pub fn new() -> Self {
+    pub fn new() -> io::Result<Self> {
         let (tx, rx) = mpsc::unbounded_channel();
         let inner: notify::RecommendedWatcher = notify::Watcher::new_immediate(move |res| {
             // The only way `send` can fail is if the receiver is dropped,
@@ -63,15 +63,15 @@ impl MuxedEvents {
             // in a panic.
             let _ = tx.send(res);
         })
-        .expect("Failed to start watcher");
+        .map_err(notify_to_io_error)?;
 
-        MuxedEvents {
+        Ok(MuxedEvents {
             inner,
             watched_directories: HashMap::new(),
             watched_files: HashSet::new(),
             pending_watched_files: HashSet::new(),
             event_stream: rx,
-        }
+        })
     }
 
     fn watch_exists(&self, path: impl AsRef<Path>) -> bool {
@@ -83,7 +83,19 @@ impl MuxedEvents {
             || self.watched_directories.contains_key(&path.to_path_buf())
     }
 
-    fn add_directory(&mut self, path: impl AsRef<Path> + Into<PathBuf>) -> Result<(), Error> {
+    fn watch(watcher: &mut notify::RecommendedWatcher, path: impl AsRef<Path>) -> io::Result<()> {
+        use notify::Watcher;
+        watcher
+            .watch(path, notify::RecursiveMode::NonRecursive)
+            .map_err(notify_to_io_error)
+    }
+
+    fn unwatch(watcher: &mut notify::RecommendedWatcher, path: impl AsRef<Path>) -> io::Result<()> {
+        use notify::Watcher;
+        watcher.unwatch(path).map_err(notify_to_io_error)
+    }
+
+    fn add_directory(&mut self, path: impl AsRef<Path>) -> io::Result<()> {
         let path_ref = path.as_ref();
 
         // `watch` behavior is platform-specific, and on some (windows) can produce
@@ -91,19 +103,22 @@ impl MuxedEvents {
         if !self.watch_exists(path_ref) {
             notify::Watcher::watch(
                 &mut self.inner,
-                &path_ref,
+                path_ref,
                 notify::RecursiveMode::NonRecursive,
             )
-            .map_err(|_e| Error::AddFailure)?;
+            .map_err(notify_to_io_error)?;
         }
 
-        let count = self.watched_directories.entry(path.into()).or_insert(0);
+        let count = self
+            .watched_directories
+            .entry(path_ref.to_owned())
+            .or_insert(0);
         *count += 1;
 
         Ok(())
     }
 
-    fn remove_directory(&mut self, path: impl AsRef<Path>) -> Result<(), Error> {
+    fn remove_directory(&mut self, path: impl AsRef<Path>) -> io::Result<()> {
         let path_ref = path.as_ref();
 
         if let Some(count) = self.watched_directories.get(path_ref).copied() {
@@ -112,8 +127,7 @@ impl MuxedEvents {
                 1 => {
                     // Remove from map first in case `unwatch` fails.
                     self.watched_directories.remove(path_ref);
-                    notify::Watcher::unwatch(&mut self.inner, &path_ref)
-                        .map_err(|_e| Error::RemoveFailure)?;
+                    Self::unwatch(&mut self.inner, path_ref)?;
                 }
                 _ => {
                     let new_count = self
@@ -134,12 +148,17 @@ impl MuxedEvents {
     /// Returns the canonicalized version of the path originally supplied, to
     /// match against the one contained in each `notify::Event` received.
     /// Otherwise returns `Error` for a given registration failure.
-    pub fn add_file(&mut self, path: impl AsRef<Path> + Into<PathBuf>) -> Result<PathBuf, Error> {
-        let path = absolutify(path, true).map_err(Error::from)?;
+    pub fn add_file(&mut self, path: impl AsRef<Path>) -> io::Result<PathBuf> {
+        let path = absolutify(path.as_ref(), true)?;
 
         // TODO: non-existent file that later gets created as a dir?
         if path.is_dir() {
-            return Err(Error::AddFailure);
+            // on Linux this would be `EISDIR` (21) and maybe
+            // `ERROR_DIRECTORY_NOT_SUPPORTED` (336) for windows?
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Is a directory",
+            ));
         }
 
         // Make sure we aren't already watching the directory
@@ -148,14 +167,14 @@ impl MuxedEvents {
         }
 
         if !path.exists() {
-            let parent = path.parent().expect("File needs a parent directory");
+            let parent = path.parent().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "File needs a parent directory")
+            })?;
 
-            self.add_directory(&parent)
-                .map_err(|_e| Error::AddFailure)?;
+            self.add_directory(&parent)?;
             self.pending_watched_files.insert(path.clone());
         } else {
-            notify::Watcher::watch(&mut self.inner, &path, notify::RecursiveMode::NonRecursive)
-                .map_err(|_e| Error::AddFailure)?;
+            Self::watch(&mut self.inner, &path)?;
 
             self.watched_files.insert(path.clone());
         }
@@ -191,19 +210,9 @@ impl MuxedEvents {
         let _ = mem::replace(&mut event.paths, paths);
     }
 
-    async fn next_event(&mut self) -> Option<Result<notify::Event, Error>> {
+    async fn next_event(&mut self) -> Option<io::Result<notify::Event>> {
         self.event_stream.next().await.map(|res| {
-            res.map_err(|e| {
-                match e.kind {
-                    notify::ErrorKind::Io(io_err) => io_err.into(),
-                    _ => {
-                        // Runtime event errors should only be std::io, but
-                        // need to handle this case anyway.
-                        io::Error::new(io::ErrorKind::Other, format!("Event error: {:?}", e)).into()
-                    }
-                }
-            })
-            .map(|mut event| {
+            res.map_err(notify_to_io_error).map(|mut event| {
                 self.handle_event(&mut event);
                 event
             })
@@ -211,25 +220,16 @@ impl MuxedEvents {
     }
 }
 
-impl Default for MuxedEvents {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl FuturesStream for MuxedEvents {
-    type Item = notify::Event;
+    type Item = io::Result<notify::Event>;
 
     fn poll_next(
         mut self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
     ) -> task::Poll<Option<Self::Item>> {
         use core::future::Future;
-        use futures_util::future::FutureExt;
 
-        let fut = self
-            .next_event()
-            .map(|val_opt| val_opt.map(|val_res| val_res.ok()).flatten());
+        let fut = self.next_event();
         pin_mut!(fut);
         fut.poll(cx)
     }
@@ -297,7 +297,7 @@ mod tests {
         let tmp_dir = TempDir::new("justa-filedir").expect("Failed to create tempdir");
         let tmp_dir_path = tmp_dir.path();
 
-        let mut watcher = MuxedEvents::new();
+        let mut watcher = MuxedEvents::new().unwrap();
         assert!(watcher.add_file(&tmp_dir_path).is_err());
     }
 
@@ -306,7 +306,7 @@ mod tests {
         let tmp_dir = TempDir::new("justa-filedir").expect("Failed to create tempdir");
         let tmp_dir_path = tmp_dir.path();
 
-        let mut watcher = MuxedEvents::new();
+        let mut watcher = MuxedEvents::new().unwrap();
 
         // This is not okay
         let file_path1 = tmp_dir_path.join("..");
@@ -322,7 +322,7 @@ mod tests {
         let file_path1 = tmp_dir_path.join("missing_file1.txt");
         let file_path2 = tmp_dir_path.join("missing_file2.txt");
 
-        let mut watcher = MuxedEvents::new();
+        let mut watcher = MuxedEvents::new().unwrap();
         watcher.add_file(&file_path1).unwrap();
         watcher.add_file(&file_path2).unwrap();
 
@@ -353,7 +353,7 @@ mod tests {
             notify::EventKind::Create(notify::event::CreateKind::File)
         };
 
-        let event1 = watcher.next().await.unwrap();
+        let event1 = watcher.next().await.unwrap().unwrap();
         assert_eq!(event1.kind, expected_event,);
         let event2 = watcher.next_event().await.unwrap().unwrap();
         assert_eq!(event2.kind, expected_event,);
