@@ -1,15 +1,20 @@
 language: rust
-os: linux
-dist: bionic
+
+jobs:
+  include:
+    - os: linux
+      dist: bionic
+    - os: osx
+    - os: windows
 
 rust:
   - stable
 
 script:
   - cargo test
-  - bash <(curl https://raw.githubusercontent.com/xd009642/tarpaulin/master/travis-install.sh)
-  - cargo tarpaulin --out Xml
-  - bash <(curl -s https://codecov.io/bash)
+  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then bash <(curl https://raw.githubusercontent.com/xd009642/tarpaulin/master/travis-install.sh); fi
+  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then cargo tarpaulin --out Xml              ; fi
+  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then bash <(curl -s https://codecov.io/bash); fi
 
 cache:
   cargo: true

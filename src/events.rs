@@ -20,7 +20,7 @@ use tokio::sync::mpsc;
 /// filesystem events are proxied. Functionality such as async/await support,
 /// and nonexistent file registration are added.
 ///
-/// [`notify::Watcher`]: ../notify/trait.Watcher.html
+/// [`notify::Watcher`]: https://docs.rs/notify/5.0.0-pre.2/notify/trait.Watcher.html
 pub struct MuxedEvents {
     inner: notify::RecommendedWatcher,
     watched_directories: HashMap<PathBuf, usize>,
@@ -86,13 +86,16 @@ impl MuxedEvents {
     fn add_directory(&mut self, path: impl AsRef<Path> + Into<PathBuf>) -> Result<(), Error> {
         let path_ref = path.as_ref();
 
-        // TODO: Check the count, but this is okay to call multiple times anyway
-        notify::Watcher::watch(
-            &mut self.inner,
-            &path_ref,
-            notify::RecursiveMode::NonRecursive,
-        )
-        .map_err(|_e| Error::AddFailure)?;
+        // `watch` behavior is platform-specific, and on some (windows) can produce
+        // duplicate events if called multiple times.
+        if !self.watch_exists(path_ref) {
+            notify::Watcher::watch(
+                &mut self.inner,
+                &path_ref,
+                notify::RecursiveMode::NonRecursive,
+            )
+            .map_err(|_e| Error::AddFailure)?;
+        }
 
         let count = self.watched_directories.entry(path.into()).or_insert(0);
         *count += 1;
@@ -337,16 +340,16 @@ mod tests {
             .await
             .expect("Failed to create file");
 
+        let expected_event = if cfg!(target_os = "windows") {
+            notify::EventKind::Create(notify::event::CreateKind::Any)
+        } else {
+            notify::EventKind::Create(notify::event::CreateKind::File)
+        };
+
         let event1 = watcher.next().await.unwrap();
-        assert_eq!(
-            event1.kind,
-            notify::EventKind::Create(notify::event::CreateKind::File)
-        );
+        assert_eq!(event1.kind, expected_event,);
         let event2 = watcher.next_event().await.unwrap().unwrap();
-        assert_eq!(
-            event2.kind,
-            notify::EventKind::Create(notify::event::CreateKind::File)
-        );
+        assert_eq!(event2.kind, expected_event,);
 
         // Now the files should be watched properly
         assert_eq!(watcher.watched_files.len(), 2);

@@ -71,7 +71,7 @@ macro_rules! unwrap_res_or_continue {
 ///
 /// This is structured with performance in mind, and to provide the caller extra
 /// context about the set. For now, only the source path is included.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct LineSet {
     /// The path from where the lines were read.
     source: PathBuf,
@@ -139,7 +139,7 @@ pin_project! {
 ///   4. Returns a `Poll::Ready` with the set of lines that could be read, via
 ///      [`LineSet`].
 ///
-/// [`futures::Stream`]: ../futures_core/stream/trait.Stream.html
+/// [`futures::Stream`]: https://docs.rs/futures/0.3/futures/stream/trait.Stream.html
 /// [`MuxedEvents`]: struct.MuxedEvents.html
 /// [`LineSet`]: struct.LineSet.html
 pub struct MuxedLines {
@@ -163,6 +163,11 @@ impl MuxedLines {
         }
     }
 
+    fn reader_exists(&self, path: &PathBuf) -> bool {
+        // Make sure there isn't already a reader for the file
+        self.readers.contains_key(path) || self.pending_readers.contains(path)
+    }
+
     /// Adds a given file to the lines watch, allowing for files which do not
     /// yet exist.
     ///
@@ -176,6 +181,10 @@ impl MuxedLines {
             .events
             .add_file(&source)
             .map_err(|e| io::Error::new(io::ErrorKind::AlreadyExists, format!("{:?}", e)))?;
+
+        if self.reader_exists(&source) {
+            return Ok(source);
+        }
 
         if !source.exists() {
             let didnt_exist = self.pending_readers.insert(source.clone());
@@ -239,7 +248,16 @@ fn handle_event_internal(
 
     match &event.kind {
         // Assumes starting tail position of 0
-        notify::EventKind::Create(notify::event::CreateKind::File) => {
+        notify::EventKind::Create(create_event) => {
+            // Windows returns `Any` for file creation, so handle that
+            match (cfg!(target_os = "windows"), create_event) {
+                (_, notify::event::CreateKind::File) => {}
+                (true, notify::event::CreateKind::Any) => {}
+                (_, _) => {
+                    return None;
+                }
+            }
+
             for path in &event.paths {
                 let _present = pending_readers.remove(path);
 
@@ -253,7 +271,16 @@ fn handle_event_internal(
         }
 
         // Resets the reader to the beginning of the file if rotated (size < pos)
-        notify::EventKind::Modify(notify::event::ModifyKind::Data(_)) => {
+        notify::EventKind::Modify(modify_event) => {
+            // Windows returns `Any` for file modification, so handle that
+            match (cfg!(target_os = "windows"), modify_event) {
+                (_, notify::event::ModifyKind::Data(_)) => {}
+                (true, notify::event::ModifyKind::Any) => {}
+                (_, _) => {
+                    return None;
+                }
+            }
+
             // TODO: Currently assumes entry exists in `readers` for given path
 
             for path in &event.paths {
@@ -372,4 +399,130 @@ impl FuturesStream for MuxedLines {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+    use futures_util::stream::StreamExt;
+    use std::time::Duration;
+    use tempdir::TempDir;
+    use tokio;
+    use tokio::fs::File;
+    use tokio::io::AsyncWriteExt;
+
+    #[test]
+    fn test_lineset_fns() {
+        let source_path = "/some/path";
+        let lines = vec!["foo".to_string(), "bar".to_string(), "baz".to_string()];
+
+        let lineset = LineSet {
+            source: PathBuf::from(&source_path),
+            lines: lines.clone(),
+        };
+
+        assert_eq!(lineset.source().to_str().unwrap(), source_path);
+
+        let line_slice = lineset.lines();
+        assert_eq!(line_slice, lines.as_slice());
+
+        assert_eq!(lineset.len(), lines.len());
+        assert_eq!(lineset.iter().collect::<Vec<&String>>().len(), lines.len());
+        assert!(!lineset.is_empty());
+
+        let (source_de, lines_de) = lineset.into_inner();
+        assert_eq!(source_de, PathBuf::from(source_path));
+        assert_eq!(lines_de, lines);
+    }
+
+    #[tokio::test]
+    async fn test_add_directory() {
+        let tmp_dir = TempDir::new("justa-filedir").expect("Failed to create tempdir");
+        let tmp_dir_path = tmp_dir.path();
+
+        let mut lines = MuxedLines::new();
+        assert!(lines.add_file(&tmp_dir_path).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_add_bad_filename() {
+        let tmp_dir = TempDir::new("justa-filedir").expect("Failed to create tempdir");
+        let tmp_dir_path = tmp_dir.path();
+
+        let mut lines = MuxedLines::new();
+
+        // This is not okay
+        let file_path1 = tmp_dir_path.join("..");
+        assert!(lines.add_file(&file_path1).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_add_missing_files() {
+        use tokio::time::timeout;
+
+        let tmp_dir = TempDir::new("missing-filedir").expect("Failed to create tempdir");
+        let tmp_dir_path = tmp_dir.path();
+
+        let file_path1 = tmp_dir_path.join("missing_file1.txt");
+        let file_path2 = tmp_dir_path.join("missing_file2.txt");
+
+        let mut lines = MuxedLines::new();
+        lines.add_file(&file_path1).await.unwrap();
+        lines.add_file(&file_path2).await.unwrap();
+
+        // Registering the same path again should be fine
+        lines.add_file(&file_path2).await.unwrap();
+
+        assert_eq!(lines.pending_readers.len(), 2);
+
+        let mut _file1 = File::create(&file_path1)
+            .await
+            .expect("Failed to create file");
+        let mut _file2 = File::create(&file_path2)
+            .await
+            .expect("Failed to create file");
+
+        tokio::select!(
+            _event = lines.next() => {
+                panic!("Should not be any lines yet");
+            }
+            _ = tokio::time::delay_for(Duration::from_millis(100)) => {
+            }
+        );
+
+        // Now the files should be readable
+        assert_eq!(lines.readers.len(), 2);
+        //assert!(!lines.watched_directories.contains_key(&pathclone));
+
+        _file1.write_all(b"foo\n").await.unwrap();
+        _file1.sync_all().await.unwrap();
+        _file1.shutdown().await.unwrap();
+        drop(_file1);
+        tokio::time::delay_for(Duration::from_millis(100)).await;
+        let lineset1 = timeout(Duration::from_millis(100), lines.next())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(lineset1
+            .source()
+            .to_str()
+            .unwrap()
+            .contains("missing_file1.txt"));
+        assert_eq!(lineset1.lines(), &["foo".to_string()]);
+
+        _file2.write_all(b"bar\nbaz\n").await.unwrap();
+        _file2.sync_all().await.unwrap();
+        _file2.shutdown().await.unwrap();
+        drop(_file2);
+        tokio::time::delay_for(Duration::from_millis(100)).await;
+        let lineset2 = timeout(Duration::from_millis(100), lines.next())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(lineset2
+            .source()
+            .to_str()
+            .unwrap()
+            .contains("missing_file2.txt"));
+        assert_eq!(lineset2.lines(), &["bar".to_string(), "baz".to_string()]);
+
+        drop(lines);
+    }
+}
