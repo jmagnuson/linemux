@@ -17,13 +17,13 @@ use linemux::MuxedLines;
 pub async fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    let mut events = MuxedLines::new();
+    let mut events = MuxedLines::new().unwrap();
 
     for f in args {
         events.add_file(&f).await.unwrap();
     }
 
-    while let Some(lineset) = events.next().await {
+    while let Some(Ok(lineset)) = events.next().await {
         let source = lineset.source().display();
 
         for line in lineset.iter() {

@@ -153,14 +153,14 @@ pub struct MuxedLines {
 }
 
 impl MuxedLines {
-    pub fn new() -> Self {
-        MuxedLines {
-            events: crate::MuxedEvents::new(),
+    pub fn new() -> io::Result<Self> {
+        Ok(MuxedLines {
+            events: crate::MuxedEvents::new()?,
             reader_positions: HashMap::new(),
             readers: HashMap::new(),
             pending_readers: HashSet::new(),
             stream_state: StreamState::default(),
-        }
+        })
     }
 
     fn reader_exists(&self, path: &PathBuf) -> bool {
@@ -173,14 +173,11 @@ impl MuxedLines {
     ///
     /// Returns the canonicalized version of the path originally supplied, to
     /// match against the one contained in each `LineSet` received. Otherwise
-    /// returns `Error` for a given registration failure.
+    /// returns `io::Error` for a given registration failure.
     pub async fn add_file(&mut self, path: impl Into<PathBuf>) -> io::Result<PathBuf> {
         let source = path.into();
 
-        let source = self
-            .events
-            .add_file(&source)
-            .map_err(|e| io::Error::new(io::ErrorKind::AlreadyExists, format!("{:?}", e)))?;
+        let source = self.events.add_file(&source)?;
 
         if self.reader_exists(&source) {
             return Ok(source);
@@ -206,12 +203,6 @@ impl MuxedLines {
         // TODO: prob need 'pending' for non-existent files like Events
 
         Ok(source)
-    }
-}
-
-impl Default for MuxedLines {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -311,12 +302,12 @@ fn handle_event_internal(
     Some(Ok(()))
 }
 
-async fn next_line_internal(reader: &mut LineReader) -> Option<String> {
-    reader.next().await.map(|res| res.unwrap())
+async fn next_line_internal(reader: &mut LineReader) -> Option<io::Result<String>> {
+    reader.next().await
 }
 
 impl FuturesStream for MuxedLines {
-    type Item = LineSet;
+    type Item = io::Result<LineSet>;
 
     fn poll_next(
         self: Pin<&mut Self>,
@@ -333,7 +324,9 @@ impl FuturesStream for MuxedLines {
         loop {
             let (new_state, maybe_lineset) = match stream_state {
                 StreamState::Events => {
-                    let event = unwrap_or_continue!(ready!(events.poll_next_unpin(cx)));
+                    let event = unwrap_res_or_continue!(unwrap_or_continue!(ready!(
+                        events.poll_next_unpin(cx)
+                    )));
                     (StreamState::HandleEvent(event), None)
                 }
                 StreamState::HandleEvent(ref mut event) => {
@@ -359,22 +352,26 @@ impl FuturesStream for MuxedLines {
                             pin_mut!(fut);
                             let res = ready!(fut.poll(cx));
 
-                            if let Some(line) = res {
-                                lines.push(line);
-                                continue;
-                            } else {
-                                // End of line stream, see if we have any to return as LineSet
-                                let maybe_lineset = if !lines.is_empty() {
-                                    let ret_lines = std::mem::replace(lines, Vec::new());
-                                    let lineset = LineSet {
-                                        source: path,
-                                        lines: ret_lines,
+                            match res {
+                                Some(Ok(line)) => {
+                                    lines.push(line);
+                                    continue;
+                                }
+                                Some(Err(e)) => (StreamState::Events, Some(Err(e))),
+                                None => {
+                                    // End of line stream, see if we have any to return as LineSet
+                                    let maybe_lineset = if !lines.is_empty() {
+                                        let ret_lines = std::mem::replace(lines, Vec::new());
+                                        let lineset = LineSet {
+                                            source: path,
+                                            lines: ret_lines,
+                                        };
+                                        Some(Ok(lineset))
+                                    } else {
+                                        None
                                     };
-                                    Some(lineset)
-                                } else {
-                                    None
-                                };
-                                (StreamState::Events, maybe_lineset)
+                                    (StreamState::Events, maybe_lineset)
+                                }
                             }
                         } else {
                             // Same state, fewer paths
@@ -437,7 +434,7 @@ mod tests {
         let tmp_dir = TempDir::new("justa-filedir").expect("Failed to create tempdir");
         let tmp_dir_path = tmp_dir.path();
 
-        let mut lines = MuxedLines::new();
+        let mut lines = MuxedLines::new().unwrap();
         assert!(lines.add_file(&tmp_dir_path).await.is_err());
     }
 
@@ -446,7 +443,7 @@ mod tests {
         let tmp_dir = TempDir::new("justa-filedir").expect("Failed to create tempdir");
         let tmp_dir_path = tmp_dir.path();
 
-        let mut lines = MuxedLines::new();
+        let mut lines = MuxedLines::new().unwrap();
 
         // This is not okay
         let file_path1 = tmp_dir_path.join("..");
@@ -463,7 +460,7 @@ mod tests {
         let file_path1 = tmp_dir_path.join("missing_file1.txt");
         let file_path2 = tmp_dir_path.join("missing_file2.txt");
 
-        let mut lines = MuxedLines::new();
+        let mut lines = MuxedLines::new().unwrap();
         lines.add_file(&file_path1).await.unwrap();
         lines.add_file(&file_path2).await.unwrap();
 
@@ -499,6 +496,7 @@ mod tests {
         let lineset1 = timeout(Duration::from_millis(100), lines.next())
             .await
             .unwrap()
+            .unwrap()
             .unwrap();
         assert!(lineset1
             .source()
@@ -514,6 +512,7 @@ mod tests {
         tokio::time::delay_for(Duration::from_millis(100)).await;
         let lineset2 = timeout(Duration::from_millis(100), lines.next())
             .await
+            .unwrap()
             .unwrap()
             .unwrap();
         assert!(lineset2

@@ -12,7 +12,7 @@
 //! # use std::path::Path;
 //! #
 //! # async fn dox() -> io::Result<()> {
-//! let mut lines = MuxedLines::new();
+//! let mut lines = MuxedLines::new()?;
 //!
 //! // Register some files to be tailed, whether they currently exist or not.
 //! lines.add_file("some/file.log").await?;
@@ -20,7 +20,7 @@
 //!
 //! // Wait for `LineSet` event, which contains a batch of lines captured for a
 //! // given source path.
-//! while let Some(lineset) = lines.next().await {
+//! while let Some(Ok(lineset)) = lines.next().await {
 //!     let source = lineset.source().display();
 //!
 //!     for line in lineset.iter() {

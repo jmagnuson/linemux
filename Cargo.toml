@@ -16,7 +16,6 @@ async-trait = "0.1"
 futures-util = "0.3"
 notify = "5.0.0-pre.2"
 pin-project-lite = "0.1"
-thiserror = "1.0"
 tokio = { version = "=0.2.13", features = ["fs", "io-util", "macros", "stream", "sync", "time"] }
 
 [dev-dependencies]

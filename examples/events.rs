@@ -15,13 +15,13 @@ use linemux::MuxedEvents;
 pub async fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    let mut events = MuxedEvents::new();
+    let mut events = MuxedEvents::new().unwrap();
 
     for f in args {
         events.add_file(&f).unwrap();
     }
 
-    while let Some(event) = events.next().await {
+    while let Some(Ok(event)) = events.next().await {
         println!("event: {:?}", event)
     }
 }
