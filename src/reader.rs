@@ -424,7 +424,7 @@ mod tests {
         assert_eq!(line_slice, lines.as_slice());
 
         assert_eq!(lineset.len(), lines.len());
-        assert_eq!(lineset.iter().collect::<Vec<&String>>().len(), lines.len());
+        assert_eq!(lineset.iter().count(), lines.len());
         assert!(!lineset.is_empty());
 
         let (source_de, lines_de) = lineset.into_inner();

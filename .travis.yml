@@ -10,11 +10,25 @@ jobs:
 rust:
   - stable
 
+before_script:
+  - |
+    if [[ "$TRAVIS_RUST_VERSION" == stable && "$TRAVIS_OS_NAME" = "linux" ]]; then
+      bash <(curl https://raw.githubusercontent.com/xd009642/tarpaulin/master/travis-install.sh)
+      rustup component add clippy
+      rustup component add rustfmt
+      cargo fmt -- --check
+      cargo clippy --all --bins --examples --tests --benches -- -Wclippy::all -Dwarnings
+    fi
+
 script:
   - cargo test
-  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then bash <(curl https://raw.githubusercontent.com/xd009642/tarpaulin/master/travis-install.sh); fi
-  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then cargo tarpaulin --out Xml              ; fi
-  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then bash <(curl -s https://codecov.io/bash); fi
+
+after_success:
+  - |
+    if [[ "$TRAVIS_RUST_VERSION" == stable && "$TRAVIS_OS_NAME" = "linux" ]]; then
+      cargo tarpaulin --out Xml
+      bash <(curl -s https://codecov.io/bash)
+    fi
 
 cache:
   cargo: true
