@@ -8,10 +8,12 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::task;
 
-use futures_util::pin_mut;
-use futures_util::stream::{Stream as FuturesStream, StreamExt};
+use futures_util::ready;
+use futures_util::stream::Stream as FuturesStream;
 use notify;
 use tokio::sync::mpsc;
+
+type EventStream = mpsc::UnboundedReceiver<Result<notify::Event, notify::Error>>;
 
 fn notify_to_io_error(e: notify::Error) -> io::Error {
     match e.kind {
@@ -39,7 +41,7 @@ pub struct MuxedEvents {
     /// Files that don't exist yet, but will start once a create event comes
     /// in for the watched parent directory.
     pending_watched_files: HashSet<PathBuf>,
-    event_stream: mpsc::UnboundedReceiver<Result<notify::Event, notify::Error>>,
+    event_stream: EventStream,
 }
 
 impl Debug for MuxedEvents {
@@ -210,13 +212,13 @@ impl MuxedEvents {
         let _ = mem::replace(&mut event.paths, paths);
     }
 
-    async fn next_event(&mut self) -> Option<io::Result<notify::Event>> {
-        self.event_stream.next().await.map(|res| {
-            res.map_err(notify_to_io_error).map(|mut event| {
-                self.handle_event(&mut event);
-                event
-            })
-        })
+    fn poll_next_event(
+        event_stream: Pin<&mut EventStream>,
+        cx: &mut task::Context<'_>,
+    ) -> task::Poll<Option<io::Result<notify::Event>>> {
+        task::Poll::Ready(
+            ready!(event_stream.poll_next(cx)).map(|res| res.map_err(notify_to_io_error)),
+        )
     }
 }
 
@@ -227,11 +229,13 @@ impl FuturesStream for MuxedEvents {
         mut self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
     ) -> task::Poll<Option<Self::Item>> {
-        use core::future::Future;
+        let mut res = ready!(Self::poll_next_event(Pin::new(&mut self.event_stream), cx));
 
-        let fut = self.next_event();
-        pin_mut!(fut);
-        fut.poll(cx)
+        if let Some(Ok(ref mut event)) = res {
+            self.handle_event(event);
+        }
+
+        task::Poll::Ready(res)
     }
 }
 
@@ -333,7 +337,7 @@ mod tests {
         assert!(watcher.watched_directories.contains_key(&pathclone));
 
         tokio::select!(
-            _event = watcher.next_event() => {
+            _event = watcher.next() => {
                 println!("Got (hopefully directory) event");
             }
             _ = tokio::time::delay_for(Duration::from_secs(1)) => {
@@ -355,7 +359,7 @@ mod tests {
 
         let event1 = watcher.next().await.unwrap().unwrap();
         assert_eq!(event1.kind, expected_event,);
-        let event2 = watcher.next_event().await.unwrap().unwrap();
+        let event2 = watcher.next().await.unwrap().unwrap();
         assert_eq!(event2.kind, expected_event,);
 
         // Now the files should be watched properly
