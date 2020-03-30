@@ -1,7 +1,7 @@
 //! Everything related to reading lines for a given event.
 
 use std::collections::{HashMap, HashSet};
-use std::fs::metadata as std_metadata;
+use std::fmt;
 use std::io;
 use std::iter::IntoIterator;
 use std::path::{Path, PathBuf};
@@ -10,26 +10,22 @@ use std::slice::Iter;
 use std::future::Future;
 use std::task;
 
+use futures_util::ready;
 use futures_util::stream::{Stream as FuturesStream, StreamExt};
-use futures_util::{pin_mut, ready};
 use pin_project_lite::pin_project;
-use tokio::fs::File;
+use tokio::fs::{metadata, File};
 use tokio::io::{AsyncBufReadExt, BufReader, Lines};
 
 use std::pin::Pin;
 
 type LineReader = Lines<BufReader<File>>;
 
-fn new_linereader(path: impl AsRef<Path>, seek_pos: Option<u64>) -> io::Result<LineReader> {
-    use std::fs::File as StdFile;
-    use std::io::{Seek, SeekFrom};
-
+async fn new_linereader(path: impl AsRef<Path>, seek_pos: Option<u64>) -> io::Result<LineReader> {
     let path = path.as_ref();
-    let mut reader = StdFile::open(path)?;
+    let mut reader = File::open(path).await?;
     if let Some(pos) = seek_pos {
-        reader.seek(SeekFrom::Start(pos)).unwrap();
+        reader.seek(io::SeekFrom::Start(pos)).await?;
     }
-    let reader = File::from_std(reader);
     let reader = BufReader::new(reader).lines();
 
     Ok(reader)
@@ -125,6 +121,43 @@ impl IntoIterator for LineSet {
     }
 }
 
+struct Inner {
+    reader_positions: HashMap<PathBuf, u64>,
+    readers: HashMap<PathBuf, LineReader>,
+    pending_readers: HashSet<PathBuf>,
+}
+
+impl Inner {
+    pub fn new() -> Self {
+        Inner {
+            reader_positions: HashMap::new(),
+            readers: HashMap::new(),
+            pending_readers: HashSet::new(),
+        }
+    }
+
+    pub fn reader_exists(&self, path: &PathBuf) -> bool {
+        // Make sure there isn't already a reader for the file
+        self.readers.contains_key(path) || self.pending_readers.contains(path)
+    }
+
+    pub fn insert_pending(&mut self, path: PathBuf) -> bool {
+        self.pending_readers.insert(path)
+    }
+
+    pub fn remove_pending(&mut self, path: &PathBuf) -> bool {
+        self.pending_readers.remove(path)
+    }
+
+    pub fn insert_reader(&mut self, path: PathBuf, reader: LineReader) -> Option<LineReader> {
+        self.readers.insert(path, reader)
+    }
+
+    pub fn insert_reader_position(&mut self, path: PathBuf, pos: u64) -> Option<u64> {
+        self.reader_positions.insert(path, pos)
+    }
+}
+
 pin_project! {
 /// Manages file watches, and can be polled to receive new lines.
 ///
@@ -145,9 +178,7 @@ pin_project! {
 pub struct MuxedLines {
     #[pin]
     events: crate::MuxedEvents,
-    reader_positions: HashMap<PathBuf, u64>,
-    readers: HashMap<PathBuf, LineReader>,
-    pending_readers: HashSet<PathBuf>,
+    inner: Option<Inner>,
     stream_state: StreamState,
 }
 }
@@ -156,16 +187,14 @@ impl MuxedLines {
     pub fn new() -> io::Result<Self> {
         Ok(MuxedLines {
             events: crate::MuxedEvents::new()?,
-            reader_positions: HashMap::new(),
-            readers: HashMap::new(),
-            pending_readers: HashSet::new(),
+            inner: Some(Inner::new()),
             stream_state: StreamState::default(),
         })
     }
 
     fn reader_exists(&self, path: &PathBuf) -> bool {
         // Make sure there isn't already a reader for the file
-        self.readers.contains_key(path) || self.pending_readers.contains(path)
+        self.inner.as_ref().unwrap().reader_exists(path)
     }
 
     /// Adds a given file to the lines watch, allowing for files which do not
@@ -184,18 +213,25 @@ impl MuxedLines {
         }
 
         if !source.exists() {
-            let didnt_exist = self.pending_readers.insert(source.clone());
+            let didnt_exist = self.inner.as_mut().unwrap().insert_pending(source.clone());
 
             // If this fails it's a bug
             assert!(didnt_exist);
         } else {
-            let size = std_metadata(&source)?.len();
+            let size = metadata(&source).await?.len();
 
-            let reader = new_linereader(&source, Some(size))?;
+            let reader = new_linereader(&source, Some(size)).await?;
 
-            self.reader_positions.insert(source.clone(), size);
+            self.inner
+                .as_mut()
+                .unwrap()
+                .insert_reader_position(source.clone(), size);
 
-            let last = self.readers.insert(source.clone(), reader);
+            let last = self
+                .inner
+                .as_mut()
+                .unwrap()
+                .insert_reader(source.clone(), reader);
 
             // If this fails it's a bug
             assert!(last.is_none());
@@ -206,10 +242,11 @@ impl MuxedLines {
     }
 }
 
-#[derive(Clone, Debug)]
+type HandleEventFuture = Pin<Box<dyn Future<Output = (Inner, Option<io::Result<()>>)>>>;
+
 enum StreamState {
     Events,
-    HandleEvent(notify::Event),
+    HandleEvent(notify::Event, HandleEventFuture),
     ReadLineSets(Vec<PathBuf>, Vec<String>),
 }
 
@@ -223,18 +260,27 @@ impl StreamState {
     }
 }
 
+impl fmt::Debug for StreamState {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match self {
+            StreamState::Events => write!(f, "Events"),
+            StreamState::HandleEvent(ref event, _) => {
+                write!(f, "HandleEvent({:?}, <elided>)", event)
+            }
+            StreamState::ReadLineSets(ref paths, ref lines) => {
+                write!(f, "ReadLineSets({:?}, {:?})", paths, lines)
+            }
+        }
+    }
+}
+
 impl Default for StreamState {
     fn default() -> Self {
         StreamState::Events
     }
 }
 
-fn handle_event_internal(
-    event: &notify::Event,
-    readers: &mut HashMap<PathBuf, LineReader>,
-    reader_positions: &mut HashMap<PathBuf, u64>,
-    pending_readers: &mut HashSet<PathBuf>,
-) -> Option<io::Result<()>> {
+async fn handle_event(event: notify::Event, mut inner: Inner) -> (Inner, Option<io::Result<()>>) {
     // TODO: This should return a PathBuf
 
     match &event.kind {
@@ -245,19 +291,19 @@ fn handle_event_internal(
                 (_, notify::event::CreateKind::File) => {}
                 (true, notify::event::CreateKind::Any) => {}
                 (_, _) => {
-                    return None;
+                    return (inner, None);
                 }
             }
 
             for path in &event.paths {
-                let _present = pending_readers.remove(path);
+                let _preset = inner.remove_pending(path);
 
                 // TODO: Handle error for each failed path
-                let reader = unwrap_res_or_continue!(new_linereader(path, None));
+                let reader = unwrap_res_or_continue!(new_linereader(path, None).await);
 
                 // Don't really care about old values, we got create
-                let _previous_reader = readers.insert(path.clone(), reader);
-                let _previous_pos = reader_positions.insert(path.clone(), 0);
+                let _previous_reader = inner.insert_reader(path.clone(), reader);
+                let _previous_pos = inner.insert_reader_position(path.clone(), 0);
             }
         }
 
@@ -268,16 +314,17 @@ fn handle_event_internal(
                 (_, notify::event::ModifyKind::Data(_)) => {}
                 (true, notify::event::ModifyKind::Any) => {}
                 (_, _) => {
-                    return None;
+                    return (inner, None);
                 }
             }
 
             // TODO: Currently assumes entry exists in `readers` for given path
 
             for path in &event.paths {
-                let size = unwrap_res_or_continue!(std_metadata(path)).len();
+                let size = unwrap_res_or_continue!(metadata(path).await).len();
 
-                let pos = reader_positions
+                let pos = inner
+                    .reader_positions
                     .get_mut(path)
                     .expect("missing reader position");
 
@@ -285,9 +332,9 @@ fn handle_event_internal(
                     // rolled
                     *pos = 0;
 
-                    let reader = unwrap_res_or_continue!(new_linereader(path, None));
+                    let reader = unwrap_res_or_continue!(new_linereader(path, None).await);
 
-                    let _previous_reader = readers.insert(path.clone(), reader);
+                    let _previous_reader = inner.insert_reader(path.clone(), reader);
                 } else {
                     // didn't roll, just update size
                     *pos = size;
@@ -296,14 +343,10 @@ fn handle_event_internal(
         }
 
         // Ignored event that doesn't warrant reading files
-        _ => return None,
+        _ => return (inner, None),
     }
 
-    Some(Ok(()))
-}
-
-async fn next_line_internal(reader: &mut LineReader) -> Option<io::Result<String>> {
-    reader.next().await
+    (inner, Some(Ok(())))
 }
 
 impl FuturesStream for MuxedLines {
@@ -316,9 +359,7 @@ impl FuturesStream for MuxedLines {
         let this = self.project();
 
         let mut events = this.events;
-        let reader_positions = this.reader_positions;
-        let readers = this.readers;
-        let pending_readers = this.pending_readers;
+        let inner = this.inner;
         let stream_state = this.stream_state;
 
         loop {
@@ -327,11 +368,16 @@ impl FuturesStream for MuxedLines {
                     let event = unwrap_res_or_continue!(unwrap_or_continue!(ready!(
                         events.poll_next_unpin(cx)
                     )));
-                    (StreamState::HandleEvent(event), None)
+                    // Temporarily take the inner reader context so that it can
+                    // be modified within async/await Future.
+                    let inner_taken = inner.take().expect("There was no inner to take");
+                    let fut = Box::pin(handle_event(event.clone(), inner_taken));
+                    (StreamState::HandleEvent(event, fut), None)
                 }
-                StreamState::HandleEvent(ref mut event) => {
-                    let res =
-                        handle_event_internal(&event, readers, reader_positions, pending_readers);
+                StreamState::HandleEvent(ref mut event, ref mut fut) => {
+                    let (inner_taken, res) = ready!(Pin::new(&mut *fut).poll(cx));
+                    let _isnone = inner.replace(inner_taken);
+                    // TODO: Assert isnone is None.
 
                     match res {
                         Some(Ok(())) => {
@@ -347,10 +393,9 @@ impl FuturesStream for MuxedLines {
                 }
                 StreamState::ReadLineSets(paths, ref mut lines) => {
                     if let Some(path) = paths.get(0).cloned() {
-                        if let Some(reader) = readers.get_mut(&path.clone()) {
-                            let fut = next_line_internal(reader);
-                            pin_mut!(fut);
-                            let res = ready!(fut.poll(cx));
+                        if let Some(reader) = inner.as_mut().unwrap().readers.get_mut(&path.clone())
+                        {
+                            let res = ready!(Pin::new(reader).poll_next(cx));
 
                             match res {
                                 Some(Ok(line)) => {
@@ -467,7 +512,7 @@ mod tests {
         // Registering the same path again should be fine
         lines.add_file(&file_path2).await.unwrap();
 
-        assert_eq!(lines.pending_readers.len(), 2);
+        assert_eq!(lines.inner.as_ref().unwrap().pending_readers.len(), 2);
 
         let mut _file1 = File::create(&file_path1)
             .await
@@ -485,7 +530,7 @@ mod tests {
         );
 
         // Now the files should be readable
-        assert_eq!(lines.readers.len(), 2);
+        assert_eq!(lines.inner.as_ref().unwrap().readers.len(), 2);
         //assert!(!lines.watched_directories.contains_key(&pathclone));
 
         _file1.write_all(b"foo\n").await.unwrap();
