@@ -170,11 +170,18 @@ impl MuxedEvents {
 
         // TODO: properly handle any errors encountered adding/removing stuff
         paths.retain(|path| {
-            if path.exists() && self.pending_watched_files.contains(path) {
-                // TODO: should only do on events that imply file exists
+            let path_exists = path.exists();
+
+            // TODO: could be more intelligent/performant by checking event types
+            if path_exists && self.pending_watched_files.contains(path) {
                 let parent = path.parent().expect("Pending watched file needs a parent");
                 let _ = self.remove_directory(parent);
                 self.pending_watched_files.remove(path);
+                let _ = self.add_file(path);
+            }
+
+            if !path_exists && self.watched_files.contains(path) {
+                self.watched_files.remove(path);
                 let _ = self.add_file(path);
             }
 
