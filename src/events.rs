@@ -287,6 +287,7 @@ fn absolutify(path: impl Into<PathBuf>, is_file: bool) -> io::Result<PathBuf> {
 mod tests {
     use super::absolutify;
     use super::MuxedEvents;
+    use crate::events::notify_to_io_error;
     use futures_util::stream::StreamExt;
     use notify;
     use std::time::Duration;
@@ -325,6 +326,7 @@ mod tests {
         let file_path2 = tmp_dir_path.join("missing_file2.txt");
 
         let mut watcher = MuxedEvents::new().unwrap();
+        let _ = format!("{:?}", watcher);
         watcher.add_file(&file_path1).unwrap();
         watcher.add_file(&file_path2).unwrap();
 
@@ -365,5 +367,18 @@ mod tests {
         assert!(!watcher.watched_directories.contains_key(&pathclone));
 
         drop(watcher);
+    }
+
+    #[test]
+    fn test_notify_error() {
+        use std::io;
+
+        let notify_io_error = notify::Error::io(io::Error::new(io::ErrorKind::AddrInUse, "foobar"));
+        let io_error = notify_to_io_error(notify_io_error);
+        assert_eq!(io_error.kind(), io::ErrorKind::AddrInUse);
+
+        let notify_custom_error = notify::Error::path_not_found();
+        let io_error = notify_to_io_error(notify_custom_error);
+        assert_eq!(io_error.kind(), io::ErrorKind::Other);
     }
 }
