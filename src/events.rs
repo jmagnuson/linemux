@@ -289,6 +289,7 @@ fn absolutify(path: impl Into<PathBuf>, is_file: bool) -> io::Result<PathBuf> {
 mod tests {
     use super::absolutify;
     use super::MuxedEvents;
+    use crate::events::notify_to_io_error;
     use futures_util::stream::StreamExt;
     use notify;
     use std::time::Duration;
@@ -315,10 +316,15 @@ mod tests {
         // This is not okay
         let file_path1 = tmp_dir_path.join("..");
         assert!(watcher.add_file(&file_path1).is_err());
+
+        // Don't add dir as file either
+        assert!(watcher.add_file(&tmp_dir_path).is_err());
     }
 
     #[tokio::test]
     async fn test_add_missing_files() {
+        use tokio::io::AsyncWriteExt;
+
         let tmp_dir = TempDir::new("missing-filedir").expect("Failed to create tempdir");
         let tmp_dir_path = tmp_dir.path();
         let pathclone = absolutify(tmp_dir_path, false).unwrap();
@@ -327,6 +333,7 @@ mod tests {
         let file_path2 = tmp_dir_path.join("missing_file2.txt");
 
         let mut watcher = MuxedEvents::new().unwrap();
+        let _ = format!("{:?}", watcher);
         watcher.add_file(&file_path1).unwrap();
         watcher.add_file(&file_path2).unwrap();
 
@@ -344,7 +351,7 @@ mod tests {
             }
         );
 
-        let _file1 = File::create(&file_path1)
+        let mut _file1 = File::create(&file_path1)
             .await
             .expect("Failed to create file");
         let _file2 = File::create(&file_path2)
@@ -366,6 +373,37 @@ mod tests {
         assert_eq!(watcher.watched_files.len(), 2);
         assert!(!watcher.watched_directories.contains_key(&pathclone));
 
+        // Explicitly close file to allow deletion event to propagate
+        _file1.sync_all().await.unwrap();
+        _file1.shutdown().await.unwrap();
+        drop(_file1);
+        tokio::time::delay_for(Duration::from_millis(100)).await;
+
+        // Deleting a file should throw it back into pending
+        tokio::fs::remove_file(&file_path1).await.unwrap();
+        tokio::select!(
+            _event = watcher.next() => {
+                println!("Should have handled file deletion");
+            }
+            _ = tokio::time::delay_for(Duration::from_millis(100)) => {
+            }
+        );
+        assert_eq!(watcher.watched_files.len(), 1);
+        assert!(watcher.watched_directories.contains_key(&pathclone));
+
         drop(watcher);
+    }
+
+    #[test]
+    fn test_notify_error() {
+        use std::io;
+
+        let notify_io_error = notify::Error::io(io::Error::new(io::ErrorKind::AddrInUse, "foobar"));
+        let io_error = notify_to_io_error(notify_io_error);
+        assert_eq!(io_error.kind(), io::ErrorKind::AddrInUse);
+
+        let notify_custom_error = notify::Error::path_not_found();
+        let io_error = notify_to_io_error(notify_custom_error);
+        assert_eq!(io_error.kind(), io::ErrorKind::Other);
     }
 }

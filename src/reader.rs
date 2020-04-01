@@ -468,6 +468,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_inner_fns() {
+        let dir = TempDir::new("some-inner-filedir").unwrap();
+        let source_path = dir.path().join("foo.txt");
+
+        let mut inner = Inner::new();
+
+        assert!(!inner.reader_exists(&source_path));
+        assert!(inner.insert_pending(source_path.clone()));
+        assert!(inner.reader_exists(&source_path));
+        assert!(!inner.insert_pending(source_path.clone()));
+
+        {
+            let mut f = File::create(&source_path).await.unwrap();
+            f.write_all(b"Hello, world!\nasdf\n").await.unwrap();
+            f.sync_all().await.unwrap();
+            f.shutdown().await.unwrap();
+        }
+
+        let linereader = new_linereader(&source_path, None).await.unwrap();
+        assert!(inner
+            .insert_reader(source_path.clone(), linereader)
+            .is_none());
+        assert!(inner
+            .insert_reader_position(source_path.clone(), 0)
+            .is_none());
+        assert!(inner.remove_pending(&source_path));
+
+        let linereader = new_linereader(&source_path, Some(3)).await.unwrap();
+        assert!(inner
+            .insert_reader(source_path.clone(), linereader)
+            .is_some());
+        assert_eq!(
+            inner.insert_reader_position(source_path.clone(), 3),
+            Some(0)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_streamstate_debug() {
+        let mut state = StreamState::default();
+        let _ = format!("{:?}", state);
+
+        let inner = Inner::new();
+        let event = notify::Event::new(notify::EventKind::Other);
+        let fut = Box::pin(handle_event(event.clone(), inner));
+        state = StreamState::HandleEvent(event, fut);
+        let _ = format!("{:?}", state);
+
+        state = StreamState::ReadLineSets(vec![], vec![]);
+        let _ = format!("{:?}", state);
+    }
+
+    #[tokio::test]
     async fn test_add_directory() {
         let tmp_dir = TempDir::new("justa-filedir").expect("Failed to create tempdir");
         let tmp_dir_path = tmp_dir.path();
@@ -486,6 +539,9 @@ mod tests {
         // This is not okay
         let file_path1 = tmp_dir_path.join("..");
         assert!(lines.add_file(&file_path1).await.is_err());
+
+        // Don't add dir as file either
+        assert!(lines.add_file(&tmp_dir_path).await.is_err());
     }
 
     #[tokio::test]
@@ -559,6 +615,10 @@ mod tests {
             .unwrap()
             .contains("missing_file2.txt"));
         assert_eq!(lineset2.lines(), &["bar".to_string(), "baz".to_string()]);
+
+        let mut iter = lineset2.into_iter();
+        assert_eq!(iter.next().unwrap(), "bar".to_string());
+        assert_eq!(iter.next().unwrap(), "baz".to_string());
 
         drop(lines);
     }
