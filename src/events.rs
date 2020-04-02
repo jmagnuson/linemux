@@ -169,7 +169,9 @@ impl MuxedEvents {
         }
 
         if !path.exists() {
-            let parent = path.parent().expect("File needs a parent directory");
+            let parent = path.parent().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "File needs a parent directory")
+            })?;
 
             self.add_directory(&parent)?;
             self.pending_watched_files.insert(path.clone());
