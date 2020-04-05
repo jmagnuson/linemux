@@ -121,6 +121,7 @@ impl IntoIterator for LineSet {
     }
 }
 
+#[derive(Debug)]
 struct Inner {
     reader_positions: HashMap<PathBuf, u64>,
     readers: HashMap<PathBuf, LineReader>,
@@ -175,6 +176,7 @@ pin_project! {
 /// [`futures::Stream`]: https://docs.rs/futures/0.3/futures/stream/trait.Stream.html
 /// [`MuxedEvents`]: struct.MuxedEvents.html
 /// [`LineSet`]: struct.LineSet.html
+#[derive(Debug)]
 pub struct MuxedLines {
     #[pin]
     events: crate::MuxedEvents,
@@ -240,7 +242,7 @@ type HandleEventFuture = Pin<Box<dyn Future<Output = (Inner, Option<io::Result<(
 enum StreamState {
     Events,
     HandleEvent(notify::Event, HandleEventFuture),
-    ReadLineSets(Vec<PathBuf>, Vec<String>),
+    ReadLineSets(Vec<PathBuf>, usize, Vec<String>),
 }
 
 impl StreamState {
@@ -260,8 +262,8 @@ impl fmt::Debug for StreamState {
             StreamState::HandleEvent(ref event, _) => {
                 write!(f, "HandleEvent({:?}, <elided>)", event)
             }
-            StreamState::ReadLineSets(ref paths, ref lines) => {
-                write!(f, "ReadLineSets({:?}, {:?})", paths, lines)
+            StreamState::ReadLineSets(ref paths, path_index, ref lines) => {
+                write!(f, "ReadLineSets({:?}, {:?})", &paths[*path_index..], lines)
             }
         }
     }
@@ -378,14 +380,14 @@ impl FuturesStream for MuxedLines {
                                 (StreamState::Events, None)
                             } else {
                                 let paths = std::mem::replace(&mut event.paths, Vec::new());
-                                (StreamState::ReadLineSets(paths, Vec::new()), None)
+                                (StreamState::ReadLineSets(paths, 0, Vec::new()), None)
                             }
                         }
                         _ => (StreamState::Events, None),
                     }
                 }
-                StreamState::ReadLineSets(paths, ref mut lines) => {
-                    if let Some(path) = paths.get(0).cloned() {
+                StreamState::ReadLineSets(paths, ref mut path_index, ref mut lines) => {
+                    if let Some(path) = paths.get(*path_index).cloned() {
                         if let Some(reader) = inner.as_mut().unwrap().readers.get_mut(&path.clone())
                         {
                             let res = ready!(Pin::new(reader).poll_next(cx));
@@ -408,12 +410,21 @@ impl FuturesStream for MuxedLines {
                                     } else {
                                         None
                                     };
-                                    (StreamState::Events, maybe_lineset)
+
+                                    // Increase index whether lineset or not
+                                    *path_index += 1;
+
+                                    // Don't change state since there may be more paths to read.
+                                    if let Some(lineset) = maybe_lineset {
+                                        return task::Poll::Ready(Some(lineset));
+                                    } else {
+                                        continue;
+                                    }
                                 }
                             }
                         } else {
                             // Same state, fewer paths
-                            paths.remove(0);
+                            *path_index += 1;
 
                             // TODO: this should work but is a bit ambiguous
                             continue;
@@ -516,7 +527,7 @@ mod tests {
         state = StreamState::HandleEvent(event, fut);
         let _ = format!("{:?}", state);
 
-        state = StreamState::ReadLineSets(vec![], vec![]);
+        state = StreamState::ReadLineSets(vec![], 0, vec![]);
         let _ = format!("{:?}", state);
     }
 
