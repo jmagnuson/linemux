@@ -32,3 +32,13 @@ after_success:
 
 cache:
   cargo: true
+
+# from https://gist.github.com/jkcclemens/000456ca646bd502cac0dbddcb8fa307
+before_cache:
+  - rm -rfv target/debug/incremental/{linemux,build_script_build}-*
+  - rm -rfv target/debug/.fingerprint/linemux-*
+  - rm -rfv target/debug/build/linemux-*
+  - rm -rfv target/debug/deps/liblinemux-*
+  - rm -rfv target/debug/deps/linemux-*
+  - rm -rfv target/debug/{linemux,liblinemux}.d
+  - cargo clean -p linemux
