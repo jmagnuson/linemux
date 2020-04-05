@@ -316,10 +316,15 @@ mod tests {
         // This is not okay
         let file_path1 = tmp_dir_path.join("..");
         assert!(watcher.add_file(&file_path1).is_err());
+
+        // Don't add dir as file either
+        assert!(watcher.add_file(&tmp_dir_path).is_err());
     }
 
     #[tokio::test]
     async fn test_add_missing_files() {
+        use tokio::io::AsyncWriteExt;
+
         let tmp_dir = TempDir::new("missing-filedir").expect("Failed to create tempdir");
         let tmp_dir_path = tmp_dir.path();
         let pathclone = absolutify(tmp_dir_path, false).unwrap();
@@ -346,7 +351,7 @@ mod tests {
             }
         );
 
-        let _file1 = File::create(&file_path1)
+        let mut _file1 = File::create(&file_path1)
             .await
             .expect("Failed to create file");
         let _file2 = File::create(&file_path2)
@@ -367,6 +372,24 @@ mod tests {
         // Now the files should be watched properly
         assert_eq!(watcher.watched_files.len(), 2);
         assert!(!watcher.watched_directories.contains_key(&pathclone));
+
+        // Explicitly close file to allow deletion event to propogate
+        _file1.sync_all().await.unwrap();
+        _file1.shutdown().await.unwrap();
+        drop(_file1);
+        tokio::time::delay_for(Duration::from_millis(100)).await;
+
+        // Deleting a file should throw it back into pending
+        tokio::fs::remove_file(&file_path1).await.unwrap();
+        tokio::select!(
+            _event = watcher.next() => {
+                println!("Should have handled file deletion");
+            }
+            _ = tokio::time::delay_for(Duration::from_millis(100)) => {
+            }
+        );
+        assert_eq!(watcher.watched_files.len(), 1);
+        assert!(watcher.watched_directories.contains_key(&pathclone));
 
         drop(watcher);
     }

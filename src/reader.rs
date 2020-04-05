@@ -546,6 +546,9 @@ mod tests {
         // This is not okay
         let file_path1 = tmp_dir_path.join("..");
         assert!(lines.add_file(&file_path1).await.is_err());
+
+        // Don't add dir as file either
+        assert!(lines.add_file(&tmp_dir_path).await.is_err());
     }
 
     #[tokio::test]
