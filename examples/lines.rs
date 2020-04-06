@@ -14,16 +14,16 @@ use tokio;
 use linemux::MuxedLines;
 
 #[tokio::main(threaded_scheduler)]
-pub async fn main() {
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    let mut events = MuxedLines::new();
+    let mut events = MuxedLines::new()?;
 
     for f in args {
-        events.add_file(&f).await.unwrap();
+        events.add_file(&f).await?;
     }
 
-    while let Some(lineset) = events.next().await {
+    while let Some(Ok(lineset)) = events.next().await {
         let source = lineset.source().display();
 
         for line in lineset.iter() {
@@ -32,4 +32,6 @@ pub async fn main() {
 
         tokio::time::delay_for(Duration::from_secs(1)).await;
     }
+
+    Ok(())
 }

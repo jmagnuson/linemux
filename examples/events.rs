@@ -12,16 +12,18 @@ use tokio;
 use linemux::MuxedEvents;
 
 #[tokio::main(threaded_scheduler)]
-pub async fn main() {
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    let mut events = MuxedEvents::new();
+    let mut events = MuxedEvents::new()?;
 
     for f in args {
-        events.add_file(&f).unwrap();
+        events.add_file(&f)?;
     }
 
-    while let Some(event) = events.next().await {
+    while let Some(Ok(event)) = events.next().await {
         println!("event: {:?}", event)
     }
+
+    Ok(())
 }
