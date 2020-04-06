@@ -146,15 +146,15 @@ pin_project! {
 /// [`MuxedEvents`]: struct.MuxedEvents.html
 /// [`Line`]: struct.Line.html
 #[derive(Debug)]
-pub struct MuxedLines {
+pub struct MuxedLines<T> {
     #[pin]
-    events: crate::MuxedEvents,
+    events: crate::MuxedEvents<T>,
     inner: Inner,
     stream_state: StreamState,
 }
 }
 
-impl MuxedLines {
+impl MuxedLines<notify::RecommendedWatcher> {
     pub fn new() -> io::Result<Self> {
         Ok(MuxedLines {
             events: crate::MuxedEvents::new()?,
@@ -402,7 +402,7 @@ fn poll_handle_event(
     }
 }
 
-impl Stream for MuxedLines {
+impl Stream<T: notify::Watcher + Unpin> for MuxedLines<T> {
     type Item = io::Result<Line>;
 
     fn poll_next(

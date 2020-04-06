@@ -33,8 +33,8 @@ fn notify_to_io_error(e: notify::Error) -> io::Error {
 /// and nonexistent file registration are added.
 ///
 /// [`notify::Watcher`]: https://docs.rs/notify/5.0.0-pre.2/notify/trait.Watcher.html
-pub struct MuxedEvents {
-    inner: notify::RecommendedWatcher,
+pub struct MuxedEvents<T> {
+    inner: T,
     watched_directories: HashMap<PathBuf, usize>,
     /// Files that are successfully being watched
     watched_files: HashSet<PathBuf>,
@@ -44,7 +44,7 @@ pub struct MuxedEvents {
     event_stream: EventStream,
 }
 
-impl Debug for MuxedEvents {
+impl<T> Debug for MuxedEvents<T> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         f.debug_struct("MuxedEvents")
             .field("watched_directories", &self.watched_directories)
@@ -54,7 +54,7 @@ impl Debug for MuxedEvents {
     }
 }
 
-impl MuxedEvents {
+impl MuxedEvents<notify::RecommendedWatcher> {
     /// Constructs a new `MuxedEvents` instance.
     pub fn new() -> io::Result<Self> {
         let (tx, rx) = mpsc::unbounded_channel();
@@ -75,7 +75,9 @@ impl MuxedEvents {
             event_stream: rx,
         })
     }
+}
 
+impl<T: notify::Watcher> MuxedEvents<T> {
     fn watch_exists(&self, path: impl AsRef<Path>) -> bool {
         let path = path.as_ref();
 
@@ -85,13 +87,13 @@ impl MuxedEvents {
             || self.watched_directories.contains_key(&path.to_path_buf())
     }
 
-    fn watch(watcher: &mut notify::RecommendedWatcher, path: impl AsRef<Path>) -> io::Result<()> {
+    fn watch(watcher: &mut T, path: impl AsRef<Path>) -> io::Result<()> {
         watcher
             .watch(path, notify::RecursiveMode::NonRecursive)
             .map_err(notify_to_io_error)
     }
 
-    fn unwatch(watcher: &mut notify::RecommendedWatcher, path: impl AsRef<Path>) -> io::Result<()> {
+    fn unwatch(watcher: &mut T, path: impl AsRef<Path>) -> io::Result<()> {
         watcher.unwatch(path).map_err(notify_to_io_error)
     }
 
@@ -101,12 +103,7 @@ impl MuxedEvents {
         // `watch` behavior is platform-specific, and on some (windows) can produce
         // duplicate events if called multiple times.
         if !self.watch_exists(path_ref) {
-            NotifyWatcher::watch(
-                &mut self.inner,
-                path_ref,
-                notify::RecursiveMode::NonRecursive,
-            )
-            .map_err(notify_to_io_error)?;
+            Self::watch(&mut self.inner, path_ref)?;
         }
 
         let count = self
@@ -220,7 +217,7 @@ impl MuxedEvents {
     }
 }
 
-impl Stream for MuxedEvents {
+impl<T: notify::Watcher + Unpin> Stream for MuxedEvents<T> {
     type Item = io::Result<notify::Event>;
 
     fn poll_next(
