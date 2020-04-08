@@ -34,14 +34,10 @@ async fn main() -> std::io::Result<()> {
     lines.add_file("some/file.log").await?;
     lines.add_file("/some/other/file.log").await?;
 
-    // Wait for `LineSet` event, which contains a batch of lines captured for a
-    // given source path.
-    while let Some(lineset) = lines.next().await {
-        let source = lineset.source().display();
-
-        for line in lineset.iter() {
-            println!("source: {}, line: {}", source, line);
-        }
+    // Wait for `Line` event, which contains a the line captured for a given
+    // source path.
+    while let Some(Ok(line)) = lines.next().await {
+        println!("source: {}, line: {}", line.source().display(), line.line());
     }
 }
 ```

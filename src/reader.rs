@@ -4,10 +4,8 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::future::Future;
 use std::io;
-use std::iter::IntoIterator;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::slice::Iter;
 use std::task;
 
 use futures_util::ready;
@@ -61,61 +59,35 @@ macro_rules! unwrap_res_or_continue {
     };
 }
 
-/// Batch of lines captured for a given source path.
+/// Line captured for a given source path.
 ///
-/// This is structured with performance in mind, and to provide the caller extra
-/// context about the set. For now, only the source path is included.
+/// Also provides the caller extra context, such as the source path.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct LineSet {
-    /// The path from where the lines were read.
+pub struct Line {
+    /// The path from where the line was read.
     source: PathBuf,
-    /// The batched list of lines.
-    lines: Vec<String>,
+    /// The received line.
+    line: String,
 }
 
-impl LineSet {
-    /// Returns a reference to the file from where the lines were read.
+impl Line {
+    /// Returns a reference to the path from where the line was read.
     pub fn source(&self) -> &Path {
         self.source.as_path()
     }
 
-    /// Returns a slice to the vec of lines.
-    #[doc(hidden)]
-    pub fn lines(&self) -> &[String] {
-        self.lines.as_slice()
+    /// Returns a reference to the line.
+    pub fn line(&self) -> &str {
+        self.line.as_str()
     }
 
-    /// Returns an iterator over the slice of lines.
-    pub fn iter(&self) -> Iter<String> {
-        self.lines().iter()
-    }
-
-    /// Returns the number of lines in the set.
-    pub fn len(&self) -> usize {
-        self.lines.len()
-    }
-
-    /// Returns `true` if the number of lines in the set is zero.
-    pub fn is_empty(&self) -> bool {
-        self.lines.len() == 0
-    }
-
-    /// Returns the internal components that make up a `LineSet`. Hidden as the
+    /// Returns the internal components that make up a `Line`. Hidden as the
     /// return signature may change.
     #[doc(hidden)]
-    pub fn into_inner(self) -> (PathBuf, Vec<String>) {
-        let LineSet { source, lines } = self;
+    pub fn into_inner(self) -> (PathBuf, String) {
+        let Line { source, line } = self;
 
-        (source, lines)
-    }
-}
-
-impl IntoIterator for LineSet {
-    type Item = String;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.lines.into_iter()
+        (source, line)
     }
 }
 
@@ -168,12 +140,11 @@ pin_project! {
 ///      to active, handling file rotation, etc.
 ///   3. Reads an active file reader if the event suggests that the file was
 ///      modified.
-///   4. Returns a `Poll::Ready` with the set of lines that could be read, via
-///      [`LineSet`].
+///   4. Returns a `Poll::Ready` for each line that could be read, via [`Line`]
 ///
 /// [`futures::Stream`]: https://docs.rs/futures/0.3/futures/stream/trait.Stream.html
 /// [`MuxedEvents`]: struct.MuxedEvents.html
-/// [`LineSet`]: struct.LineSet.html
+/// [`Line`]: struct.Line.html
 #[derive(Debug)]
 pub struct MuxedLines {
     #[pin]
@@ -201,7 +172,7 @@ impl MuxedLines {
     /// yet exist.
     ///
     /// Returns the canonicalized version of the path originally supplied, to
-    /// match against the one contained in each `LineSet` received. Otherwise
+    /// match against the one contained in each `Line` received. Otherwise
     /// returns `io::Error` for a given registration failure.
     pub async fn add_file(&mut self, path: impl Into<PathBuf>) -> io::Result<PathBuf> {
         let source = path.into();
@@ -240,7 +211,7 @@ type HandleEventFuture = Pin<Box<dyn Future<Output = (Inner, Option<io::Result<(
 enum StreamState {
     Events,
     HandleEvent(notify::Event, HandleEventFuture),
-    ReadLineSets(Vec<PathBuf>, usize, Vec<String>),
+    ReadLineSets(Vec<PathBuf>, usize),
 }
 
 impl StreamState {
@@ -260,8 +231,8 @@ impl fmt::Debug for StreamState {
             StreamState::HandleEvent(ref event, _) => {
                 write!(f, "HandleEvent({:?}, <elided>)", event)
             }
-            StreamState::ReadLineSets(ref paths, path_index, ref lines) => {
-                write!(f, "ReadLineSets({:?}, {:?})", &paths[*path_index..], lines)
+            StreamState::ReadLineSets(ref paths, path_index) => {
+                write!(f, "ReadLineSets({:?})", &paths[*path_index..])
             }
         }
     }
@@ -343,7 +314,7 @@ async fn handle_event(event: notify::Event, mut inner: Inner) -> (Inner, Option<
 }
 
 impl Stream for MuxedLines {
-    type Item = io::Result<LineSet>;
+    type Item = io::Result<Line>;
 
     fn poll_next(
         self: Pin<&mut Self>,
@@ -379,13 +350,13 @@ impl Stream for MuxedLines {
                                 (StreamState::Events, None)
                             } else {
                                 let paths = std::mem::replace(&mut event.paths, Vec::new());
-                                (StreamState::ReadLineSets(paths, 0, Vec::new()), None)
+                                (StreamState::ReadLineSets(paths, 0), None)
                             }
                         }
                         _ => (StreamState::Events, None),
                     }
                 }
-                StreamState::ReadLineSets(paths, ref mut path_index, ref mut lines) => {
+                StreamState::ReadLineSets(paths, ref mut path_index) => {
                     if let Some(path) = paths.get(*path_index).cloned() {
                         if let Some(reader) = inner.as_mut().unwrap().readers.get_mut(&path.clone())
                         {
@@ -393,32 +364,14 @@ impl Stream for MuxedLines {
 
                             match res {
                                 Some(Ok(line)) => {
-                                    lines.push(line);
-                                    continue;
+                                    let lineset = Line { source: path, line };
+                                    return task::Poll::Ready(Some(Ok(lineset)));
                                 }
                                 Some(Err(e)) => (StreamState::Events, Some(Err(e))),
                                 None => {
-                                    // End of line stream, see if we have any to return as LineSet
-                                    let maybe_lineset = if !lines.is_empty() {
-                                        let ret_lines = std::mem::replace(lines, Vec::new());
-                                        let lineset = LineSet {
-                                            source: path,
-                                            lines: ret_lines,
-                                        };
-                                        Some(Ok(lineset))
-                                    } else {
-                                        None
-                                    };
-
                                     // Increase index whether lineset or not
                                     *path_index += 1;
-
-                                    // Don't change state since there may be more paths to read.
-                                    if let Some(lineset) = maybe_lineset {
-                                        return task::Poll::Ready(Some(lineset));
-                                    } else {
-                                        continue;
-                                    }
+                                    continue;
                                 }
                             }
                         } else {
@@ -456,25 +409,21 @@ mod tests {
     #[test]
     fn test_lineset_fns() {
         let source_path = "/some/path";
-        let lines = vec!["foo".to_string(), "bar".to_string(), "baz".to_string()];
+        let line = "foo".to_string();
 
-        let lineset = LineSet {
+        let lineset = Line {
             source: PathBuf::from(&source_path),
-            lines: lines.clone(),
+            line: line.clone(),
         };
 
         assert_eq!(lineset.source().to_str().unwrap(), source_path);
 
-        let line_slice = lineset.lines();
-        assert_eq!(line_slice, lines.as_slice());
-
-        assert_eq!(lineset.len(), lines.len());
-        assert_eq!(lineset.iter().count(), lines.len());
-        assert!(!lineset.is_empty());
+        let line_slice = lineset.line();
+        assert_eq!(line_slice, line.as_str());
 
         let (source_de, lines_de) = lineset.into_inner();
         assert_eq!(source_de, PathBuf::from(source_path));
-        assert_eq!(lines_de, lines);
+        assert_eq!(lines_de, line);
     }
 
     #[tokio::test]
@@ -526,7 +475,7 @@ mod tests {
         state = StreamState::HandleEvent(event, fut);
         let _ = format!("{:?}", state);
 
-        state = StreamState::ReadLineSets(vec![], 0, vec![]);
+        state = StreamState::ReadLineSets(vec![], 0);
         let _ = format!("{:?}", state);
     }
 
@@ -590,7 +539,6 @@ mod tests {
 
         // Now the files should be readable
         assert_eq!(lines.inner.as_ref().unwrap().readers.len(), 2);
-        //assert!(!lines.watched_directories.contains_key(&pathclone));
 
         _file1.write_all(b"foo\n").await.unwrap();
         _file1.sync_all().await.unwrap();
@@ -607,28 +555,39 @@ mod tests {
             .to_str()
             .unwrap()
             .contains("missing_file1.txt"));
-        assert_eq!(lineset1.lines(), &["foo".to_string()]);
+        assert_eq!(lineset1.line(), "foo");
 
         _file2.write_all(b"bar\nbaz\n").await.unwrap();
         _file2.sync_all().await.unwrap();
         _file2.shutdown().await.unwrap();
         drop(_file2);
         tokio::time::delay_for(Duration::from_millis(100)).await;
-        let lineset2 = timeout(Duration::from_millis(100), lines.next())
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        assert!(lineset2
-            .source()
-            .to_str()
-            .unwrap()
-            .contains("missing_file2.txt"));
-        assert_eq!(lineset2.lines(), &["bar".to_string(), "baz".to_string()]);
-
-        let mut iter = lineset2.into_iter();
-        assert_eq!(iter.next().unwrap(), "bar".to_string());
-        assert_eq!(iter.next().unwrap(), "baz".to_string());
+        {
+            let lineset2 = timeout(Duration::from_millis(100), lines.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert!(lineset2
+                .source()
+                .to_str()
+                .unwrap()
+                .contains("missing_file2.txt"));
+            assert_eq!(lineset2.line(), "bar");
+        }
+        {
+            let lineset2 = timeout(Duration::from_millis(100), lines.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert!(lineset2
+                .source()
+                .to_str()
+                .unwrap()
+                .contains("missing_file2.txt"));
+            assert_eq!(lineset2.line(), "baz");
+        }
 
         drop(lines);
     }
