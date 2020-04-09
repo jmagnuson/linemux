@@ -12,11 +12,10 @@ license = "MIT OR Apache-2.0"
 categories = ["asynchronous", "filesystem"]
 
 [dependencies]
-async-trait = "0.1"
 futures-util = "0.3"
 notify = "5.0.0-pre.2"
 pin-project-lite = "0.1"
-tokio = { version = "=0.2.13", features = ["fs", "io-util", "macros", "stream", "sync", "time"] }
+tokio = { version = "0.2", features = ["fs", "io-util", "macros", "stream", "sync", "time"] }
 
 [dev-dependencies]
 tempdir = "0.3"
