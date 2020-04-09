@@ -11,6 +11,10 @@ keywords = ["tail", "lines", "watch", "fs", "events"]
 license = "MIT OR Apache-2.0"
 categories = ["asynchronous", "filesystem"]
 
+[badges]
+travis-ci = { repository = "jmagnuson/linemux", branch = "master" }
+codecov = { repository = "jmagnuson/linemux", branch = "master", service = "github" }
+
 [dependencies]
 futures-util = "0.3"
 notify = "5.0.0-pre.2"
