@@ -9,7 +9,7 @@ use std::pin::Pin;
 use std::task;
 
 use futures_util::ready;
-use futures_util::stream::Stream as FuturesStream;
+use tokio::stream::Stream;
 use notify;
 use tokio::sync::mpsc;
 
@@ -222,7 +222,7 @@ impl MuxedEvents {
     }
 }
 
-impl FuturesStream for MuxedEvents {
+impl Stream for MuxedEvents {
     type Item = io::Result<notify::Event>;
 
     fn poll_next(
@@ -290,12 +290,12 @@ mod tests {
     use super::absolutify;
     use super::MuxedEvents;
     use crate::events::notify_to_io_error;
-    use futures_util::stream::StreamExt;
     use notify;
     use std::time::Duration;
     use tempdir::TempDir;
     use tokio;
     use tokio::fs::File;
+    use tokio::stream::StreamExt;
 
     #[test]
     fn test_add_directory() {

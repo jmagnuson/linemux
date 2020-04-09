@@ -6,7 +6,7 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! # use futures_util::stream::StreamExt;
+//! # use tokio::stream::StreamExt;
 //! # use linemux::MuxedLines;
 //! # use std::io;
 //! # use std::path::Path;

@@ -11,10 +11,10 @@ use std::future::Future;
 use std::task;
 
 use futures_util::ready;
-use futures_util::stream::{Stream as FuturesStream, StreamExt};
 use pin_project_lite::pin_project;
 use tokio::fs::{metadata, File};
 use tokio::io::{AsyncBufReadExt, BufReader, Lines};
+use tokio::stream::Stream;
 
 use std::pin::Pin;
 
@@ -344,7 +344,7 @@ async fn handle_event(event: notify::Event, mut inner: Inner) -> (Inner, Option<
     (inner, Some(Ok(())))
 }
 
-impl FuturesStream for MuxedLines {
+impl Stream for MuxedLines {
     type Item = io::Result<LineSet>;
 
     fn poll_next(
@@ -360,9 +360,10 @@ impl FuturesStream for MuxedLines {
         loop {
             let (new_state, maybe_lineset) = match stream_state {
                 StreamState::Events => {
-                    let event = unwrap_res_or_continue!(unwrap_or_continue!(ready!(
-                        events.poll_next_unpin(cx)
-                    )));
+                    let event = unwrap_res_or_continue!(unwrap_or_continue!(ready!(Pin::new(
+                        &mut *events
+                    )
+                    .poll_next(cx))));
                     // Temporarily take the inner reader context so that it can
                     // be modified within async/await Future.
                     let inner_taken = inner.take().expect("There was no inner to take");
@@ -447,12 +448,12 @@ impl FuturesStream for MuxedLines {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures_util::stream::StreamExt;
     use std::time::Duration;
     use tempdir::TempDir;
     use tokio;
     use tokio::fs::File;
     use tokio::io::AsyncWriteExt;
+    use tokio::stream::StreamExt;
 
     #[test]
     fn test_lineset_fns() {

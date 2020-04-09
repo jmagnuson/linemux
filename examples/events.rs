@@ -6,7 +6,7 @@
 //! The files could be present or not, but assume some filesystem operations
 //! will eventually be applied to them in order to generate events.
 
-use futures_util::stream::StreamExt;
+use tokio::stream::StreamExt;
 use tokio;
 
 use linemux::MuxedEvents;

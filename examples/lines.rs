@@ -8,7 +8,7 @@
 
 use std::time::Duration;
 
-use futures_util::stream::StreamExt;
+use tokio::stream::StreamExt;
 use tokio;
 
 use linemux::MuxedLines;
