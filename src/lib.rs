@@ -17,8 +17,8 @@
 //!     lines.add_file("some/file.log").await?;
 //!     lines.add_file("/some/other/file.log").await?;
 //!
-//!     // Wait for `Line` event, which contains a batch of lines captured for a
-//!     // given source path.
+//!     // Wait for `Line` event, which contains the line captured for a given
+//!     // source path.
 //!     while let Some(Ok(line)) = lines.next().await {
 //!         println!("source: {}, line: {}", line.source().display(), line.line());
 //!     }
