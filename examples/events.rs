@@ -6,13 +6,11 @@
 //! The files could be present or not, but assume some filesystem operations
 //! will eventually be applied to them in order to generate events.
 
-use futures_util::stream::StreamExt;
-use tokio;
-
 use linemux::MuxedEvents;
+use tokio::{self, stream::StreamExt};
 
-#[tokio::main(threaded_scheduler)]
-pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+pub async fn main() -> std::io::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     let mut events = MuxedEvents::new()?;

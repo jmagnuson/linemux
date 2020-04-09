@@ -6,29 +6,28 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! # use futures_util::stream::StreamExt;
-//! # use linemux::MuxedLines;
-//! # use std::io;
-//! # use std::path::Path;
-//! #
-//! # async fn dox() -> io::Result<()> {
-//! let mut lines = MuxedLines::new()?;
+//! use linemux::MuxedLines;
+//! use tokio::{self, stream::StreamExt};
 //!
-//! // Register some files to be tailed, whether they currently exist or not.
-//! lines.add_file("some/file.log").await?;
-//! lines.add_file("/some/other/file.log").await?;
+//! #[tokio::main]
+//! async fn main() -> std::io::Result<()> {
+//!     let mut lines = MuxedLines::new()?;
 //!
-//! // Wait for `LineSet` event, which contains a batch of lines captured for a
-//! // given source path.
-//! while let Some(Ok(lineset)) = lines.next().await {
-//!     let source = lineset.source().display();
+//!     // Register some files to be tailed, whether they currently exist or not.
+//!     lines.add_file("some/file.log").await?;
+//!     lines.add_file("/some/other/file.log").await?;
 //!
-//!     for line in lineset.iter() {
-//!         println!("source: {}, line: {}", source, line);
+//!     // Wait for `LineSet` event, which contains a batch of lines captured for a
+//!     // given source path.
+//!     while let Some(Ok(lineset)) = lines.next().await {
+//!         let source = lineset.source().display();
+//!
+//!         for line in lineset.iter() {
+//!             println!("source: {}, line: {}", source, line);
+//!         }
 //!     }
+//!     Ok(())
 //! }
-//! # Ok(())
-//! # }
 //! ```
 //!
 //! ## Caveats
