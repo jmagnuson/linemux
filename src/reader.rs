@@ -211,7 +211,7 @@ type HandleEventFuture = Pin<Box<dyn Future<Output = (Inner, Option<io::Result<(
 enum StreamState {
     Events,
     HandleEvent(notify::Event, HandleEventFuture),
-    ReadLineSets(Vec<PathBuf>, usize),
+    ReadLines(Vec<PathBuf>, usize),
 }
 
 impl StreamState {
@@ -231,8 +231,8 @@ impl fmt::Debug for StreamState {
             StreamState::HandleEvent(ref event, _) => {
                 write!(f, "HandleEvent({:?}, <elided>)", event)
             }
-            StreamState::ReadLineSets(ref paths, path_index) => {
-                write!(f, "ReadLineSets({:?})", &paths[*path_index..])
+            StreamState::ReadLines(ref paths, path_index) => {
+                write!(f, "ReadLines({:?})", &paths[*path_index..])
             }
         }
     }
@@ -327,7 +327,7 @@ impl Stream for MuxedLines {
         let stream_state = this.stream_state;
 
         loop {
-            let (new_state, maybe_lineset) = match stream_state {
+            let (new_state, maybe_line) = match stream_state {
                 StreamState::Events => {
                     let event = unwrap_res_or_continue!(unwrap_or_continue!(ready!(Pin::new(
                         &mut *events
@@ -350,26 +350,28 @@ impl Stream for MuxedLines {
                                 (StreamState::Events, None)
                             } else {
                                 let paths = std::mem::replace(&mut event.paths, Vec::new());
-                                (StreamState::ReadLineSets(paths, 0), None)
+                                (StreamState::ReadLines(paths, 0), None)
                             }
                         }
                         _ => (StreamState::Events, None),
                     }
                 }
-                StreamState::ReadLineSets(paths, ref mut path_index) => {
-                    if let Some(path) = paths.get(*path_index).cloned() {
-                        if let Some(reader) = inner.as_mut().unwrap().readers.get_mut(&path.clone())
-                        {
+                StreamState::ReadLines(paths, ref mut path_index) => {
+                    if let Some(path) = paths.get(*path_index) {
+                        if let Some(reader) = inner.as_mut().unwrap().readers.get_mut(path) {
                             let res = ready!(Pin::new(reader).poll_next(cx));
 
                             match res {
                                 Some(Ok(line)) => {
-                                    let lineset = Line { source: path, line };
-                                    return task::Poll::Ready(Some(Ok(lineset)));
+                                    let line = Line {
+                                        source: path.clone(),
+                                        line,
+                                    };
+                                    return task::Poll::Ready(Some(Ok(line)));
                                 }
                                 Some(Err(e)) => (StreamState::Events, Some(Err(e))),
                                 None => {
-                                    // Increase index whether lineset or not
+                                    // Increase index whether line or not
                                     *path_index += 1;
                                     continue;
                                 }
@@ -389,8 +391,8 @@ impl Stream for MuxedLines {
 
             stream_state.replace(new_state);
 
-            if let Some(lineset) = maybe_lineset {
-                return task::Poll::Ready(Some(lineset));
+            if let Some(line) = maybe_line {
+                return task::Poll::Ready(Some(line));
             }
         }
     }
@@ -407,23 +409,23 @@ mod tests {
     use tokio::stream::StreamExt;
 
     #[test]
-    fn test_lineset_fns() {
+    fn test_line_fns() {
         let source_path = "/some/path";
-        let line = "foo".to_string();
+        let line_expected = "foo".to_string();
 
-        let lineset = Line {
+        let line = Line {
             source: PathBuf::from(&source_path),
-            line: line.clone(),
+            line: line_expected.clone(),
         };
 
-        assert_eq!(lineset.source().to_str().unwrap(), source_path);
+        assert_eq!(line.source().to_str().unwrap(), source_path);
 
-        let line_slice = lineset.line();
-        assert_eq!(line_slice, line.as_str());
+        let line_ref = line.line();
+        assert_eq!(line_ref, line_expected.as_str());
 
-        let (source_de, lines_de) = lineset.into_inner();
+        let (source_de, lines_de) = line.into_inner();
         assert_eq!(source_de, PathBuf::from(source_path));
-        assert_eq!(lines_de, line);
+        assert_eq!(lines_de, line_expected);
     }
 
     #[tokio::test]
@@ -475,7 +477,7 @@ mod tests {
         state = StreamState::HandleEvent(event, fut);
         let _ = format!("{:?}", state);
 
-        state = StreamState::ReadLineSets(vec![], 0);
+        state = StreamState::ReadLines(vec![], 0);
         let _ = format!("{:?}", state);
     }
 
@@ -545,17 +547,17 @@ mod tests {
         _file1.shutdown().await.unwrap();
         drop(_file1);
         tokio::time::delay_for(Duration::from_millis(100)).await;
-        let lineset1 = timeout(Duration::from_millis(100), lines.next())
+        let line1 = timeout(Duration::from_millis(100), lines.next())
             .await
             .unwrap()
             .unwrap()
             .unwrap();
-        assert!(lineset1
+        assert!(line1
             .source()
             .to_str()
             .unwrap()
             .contains("missing_file1.txt"));
-        assert_eq!(lineset1.line(), "foo");
+        assert_eq!(line1.line(), "foo");
 
         _file2.write_all(b"bar\nbaz\n").await.unwrap();
         _file2.sync_all().await.unwrap();
@@ -563,30 +565,30 @@ mod tests {
         drop(_file2);
         tokio::time::delay_for(Duration::from_millis(100)).await;
         {
-            let lineset2 = timeout(Duration::from_millis(100), lines.next())
+            let line2 = timeout(Duration::from_millis(100), lines.next())
                 .await
                 .unwrap()
                 .unwrap()
                 .unwrap();
-            assert!(lineset2
+            assert!(line2
                 .source()
                 .to_str()
                 .unwrap()
                 .contains("missing_file2.txt"));
-            assert_eq!(lineset2.line(), "bar");
+            assert_eq!(line2.line(), "bar");
         }
         {
-            let lineset2 = timeout(Duration::from_millis(100), lines.next())
+            let line2 = timeout(Duration::from_millis(100), lines.next())
                 .await
                 .unwrap()
                 .unwrap()
                 .unwrap();
-            assert!(lineset2
+            assert!(line2
                 .source()
                 .to_str()
                 .unwrap()
                 .contains("missing_file2.txt"));
-            assert_eq!(lineset2.line(), "baz");
+            assert_eq!(line2.line(), "baz");
         }
 
         drop(lines);
