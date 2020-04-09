@@ -8,13 +8,11 @@
 
 use std::time::Duration;
 
-use tokio::stream::StreamExt;
-use tokio;
-
 use linemux::MuxedLines;
+use tokio::{self, stream::StreamExt};
 
-#[tokio::main(threaded_scheduler)]
-pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+pub async fn main() -> std::io::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     let mut events = MuxedLines::new()?;

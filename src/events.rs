@@ -9,8 +9,8 @@ use std::pin::Pin;
 use std::task;
 
 use futures_util::ready;
-use tokio::stream::Stream;
 use notify;
+use tokio::stream::Stream;
 use tokio::sync::mpsc;
 
 type EventStream = mpsc::UnboundedReceiver<Result<notify::Event, notify::Error>>;

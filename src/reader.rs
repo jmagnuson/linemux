@@ -2,12 +2,12 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::future::Future;
 use std::io;
 use std::iter::IntoIterator;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::slice::Iter;
-
-use std::future::Future;
 use std::task;
 
 use futures_util::ready;
@@ -15,8 +15,6 @@ use pin_project_lite::pin_project;
 use tokio::fs::{metadata, File};
 use tokio::io::{AsyncBufReadExt, BufReader, Lines};
 use tokio::stream::Stream;
-
-use std::pin::Pin;
 
 type LineReader = Lines<BufReader<File>>;
 
