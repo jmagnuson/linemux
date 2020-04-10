@@ -6,8 +6,6 @@
 //! The files could be present or not, but assume some data will eventually be
 //! be written to them in order to generate lines.
 
-use std::time::Duration;
-
 use linemux::MuxedLines;
 use tokio::{self, stream::StreamExt};
 
@@ -15,20 +13,14 @@ use tokio::{self, stream::StreamExt};
 pub async fn main() -> std::io::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    let mut events = MuxedLines::new()?;
+    let mut lines = MuxedLines::new()?;
 
     for f in args {
-        events.add_file(&f).await?;
+        lines.add_file(&f).await?;
     }
 
-    while let Some(Ok(lineset)) = events.next().await {
-        let source = lineset.source().display();
-
-        for line in lineset.iter() {
-            println!("({}) {}", source, line);
-        }
-
-        tokio::time::delay_for(Duration::from_secs(1)).await;
+    while let Some(Ok(line)) = lines.next().await {
+        println!("({}) {}", line.source().display(), line.line());
     }
 
     Ok(())
