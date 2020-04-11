@@ -206,7 +206,8 @@ impl MuxedLines {
     }
 }
 
-type HandleEventFuture = Pin<Box<dyn Future<Output = (Inner, Option<io::Result<()>>)>>>;
+type HandleEventFuture =
+    Pin<Box<dyn Future<Output = (Inner, Option<io::Result<()>>)> + Send + Sync>>;
 
 enum StreamState {
     Events,
@@ -407,6 +408,23 @@ mod tests {
     use tokio::fs::File;
     use tokio::io::AsyncWriteExt;
     use tokio::stream::StreamExt;
+
+    #[tokio::test]
+    async fn test_is_send() {
+        fn is_send<T: Send>() {}
+        is_send::<MuxedLines>();
+
+        tokio::spawn(async move {
+            let mut lines = MuxedLines::new().unwrap();
+            let _ = lines.add_file("foo").await.unwrap();
+        });
+    }
+
+    #[test]
+    fn test_is_sync() {
+        fn is_sync<T: Sync>() {}
+        is_sync::<MuxedLines>();
+    }
 
     #[test]
     fn test_line_fns() {

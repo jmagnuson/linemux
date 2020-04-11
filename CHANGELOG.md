@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [Unreleased]
 
+### Added
+- Add `Send` + `Sync` to `MuxedLines`.
+
 ## [0.1.0] - 2020-04-10
 
 ### Added
