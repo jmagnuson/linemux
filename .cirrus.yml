@@ -10,6 +10,6 @@ task:
   cargo_cache:
     folder: $HOME/.cargo/registry
     fingerprint_script: cat Cargo.toml
-  build_script: cargo build
-  test_script: cargo test
+  build_script: cargo build --all
+  test_script: cargo test --all -- --nocapture
   before_cache_script: rm -rf $HOME/.cargo/registry/index

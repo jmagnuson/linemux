@@ -230,7 +230,7 @@ impl Stream for MuxedEvents {
         let mut res = ready!(Self::poll_next_event(Pin::new(&mut self.event_stream), cx));
 
         if let Some(Ok(ref mut event)) = res {
-            self.handle_event(event);
+            self.handle_event(dbg!(event));
         }
 
         task::Poll::Ready(res)
