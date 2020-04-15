@@ -9,7 +9,7 @@ task:
   install_script: pkg install -y rust
   cargo_cache:
     folder: $HOME/.cargo/registry
-    fingerprint_script: cat Cargo.lock
+    fingerprint_script: cat Cargo.toml
   build_script: cargo build
   test_script: cargo test
   before_cache_script: rm -rf $HOME/.cargo/registry/index
