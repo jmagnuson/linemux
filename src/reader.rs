@@ -630,7 +630,7 @@ mod tests {
             .expect("Failed to create file");
 
         assert!(
-            timeout(Duration::from_millis(100), lines.next())
+            timeout(Duration::from_millis(1000), lines.next())
                 .await
                 .is_err(),
             "Should not be any lines yet",
