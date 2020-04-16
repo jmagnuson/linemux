@@ -396,7 +396,7 @@ mod tests {
         tokio::fs::remove_file(&file_path1).await.unwrap();
 
         // Flush possible file deletion event
-        let _res = timeout(Duration::from_millis(100), watcher.next()).await;
+        let _res = timeout(Duration::from_millis(1000), watcher.next()).await;
 
         assert_eq!(watcher.watched_files.len(), 1);
         assert!(watcher.watched_directories.contains_key(&pathclone));

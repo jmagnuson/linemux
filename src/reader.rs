@@ -644,7 +644,7 @@ mod tests {
         _file1.shutdown().await.unwrap();
         drop(_file1);
         tokio::time::delay_for(Duration::from_millis(100)).await;
-        let line1 = timeout(Duration::from_millis(100), lines.next())
+        let line1 = timeout(Duration::from_millis(1000), lines.next())
             .await
             .unwrap()
             .unwrap()
@@ -662,7 +662,7 @@ mod tests {
         drop(_file2);
         tokio::time::delay_for(Duration::from_millis(100)).await;
         {
-            let line2 = timeout(Duration::from_millis(100), lines.next())
+            let line2 = timeout(Duration::from_millis(1000), lines.next())
                 .await
                 .unwrap()
                 .unwrap()
@@ -675,7 +675,7 @@ mod tests {
             assert_eq!(line2.line(), "bar");
         }
         {
-            let line2 = timeout(Duration::from_millis(100), lines.next())
+            let line2 = timeout(Duration::from_millis(1000), lines.next())
                 .await
                 .unwrap()
                 .unwrap()
