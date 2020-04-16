@@ -299,7 +299,7 @@ fn poll_handle_event(
                 match state.await_state {
                     HandleEventAwaitState::Idle => {
                         // Windows returns `Any` for file creation, so handle that
-                        match (cfg!(target_os = "windows"), create_event) {
+                        match (cfg!(any(target_os = "windows", target_os = "freebsd")), create_event) {
                             (_, notify::event::CreateKind::File) => {}
                             (true, notify::event::CreateKind::Any) => {}
                             (_, _) => {
@@ -335,7 +335,7 @@ fn poll_handle_event(
                 match state.await_state {
                     HandleEventAwaitState::Idle => {
                         // Windows returns `Any` for file modification, so handle that
-                        match (cfg!(target_os = "windows"), modify_event) {
+                        match (cfg!(any(target_os = "windows", target_os = "freebsd")), modify_event) {
                             (_, notify::event::ModifyKind::Data(_)) => {}
                             (true, notify::event::ModifyKind::Any) => {}
                             (_, _) => {
