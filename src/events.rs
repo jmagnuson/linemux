@@ -331,7 +331,7 @@ mod tests {
 
         let mut watcher = MuxedEvents::new().unwrap();
         let _ = format!("{:?}", watcher);
-        debug!("{:?}", watcher);
+        prinln!("{:?}", watcher);
         watcher.add_file(&file_path1).unwrap();
         watcher.add_file(&file_path2).unwrap();
 
