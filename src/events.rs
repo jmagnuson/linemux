@@ -54,30 +54,38 @@ impl Debug for MuxedEvents {
     }
 }
 
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+fn new_watcher(tx: mpsc::UnboundedSender<notify::Result<notify::Event>>) -> io::Result<notify::RecommendedWatcher> {
+    println!("using PollingWatcher");
+
+    let event_fn = std::sync::Arc::new(std::sync::Mutex::new(move |res| { let _ = tx.send(res); }));
+    let delay = std::time::Duration::from_millis(100);
+    let inner = notify::RecommendedWatcher::with_delay(event_fn, delay)
+        .map_err(notify_to_io_error)?;
+
+    Ok(inner)
+}
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+fn new_watcher(tx: mpsc::UnboundedSender<notify::Result<notify::Event>>) -> io::Result<notify::RecommendedWatcher> {
+    println!("using RecommendedWatcher");
+
+    let inner: notify::RecommendedWatcher = NotifyWatcher::new_immediate(move |res| {
+        // The only way `send` can fail is if the receiver is dropped,
+        // and `MuxedEvents` controls both. `unwrap` is not used,
+        // however, since `Drop` idiosyncrasies could otherwise result
+        // in a panic.
+        let _ = tx.send(res);
+    }).map_err(notify_to_io_error)?;
+
+    Ok(inner)
+}
+
 impl MuxedEvents {
     /// Constructs a new `MuxedEvents` instance.
     pub fn new() -> io::Result<Self> {
         let (tx, rx) = mpsc::unbounded_channel();
 
-        let inner = if cfg!(not(any(target_os = "linux", target_os = "macos", target_os = "windows"))) {
-            let event_fn = std::sync::Arc::new(std::sync::Mutex::new(move |res| { let _ = t.send(res); }));
-            let delay = std::time::Duration::from_millis(100);
-            let inner = notify::RecommendedWatcher::with_delay(event_fn, delay)
-                .map_err(notify_to_io_error)?;
-
-            inner
-        } else {
-            let inner: notify::RecommendedWatcher = NotifyWatcher::new_immediate(move |res| {
-                // The only way `send` can fail is if the receiver is dropped,
-                // and `MuxedEvents` controls both. `unwrap` is not used,
-                // however, since `Drop` idiosyncrasies could otherwise result
-                // in a panic.
-                let _ = tx.send(res);
-            })
-            .map_err(notify_to_io_error)?;
-
-            inner
-        };
+        let inner = new_watcher(tx)?;
 
         Ok(MuxedEvents {
             inner,
