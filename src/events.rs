@@ -12,8 +12,12 @@ use futures_util::ready;
 use notify::Watcher as NotifyWatcher;
 use tokio::stream::Stream;
 use tokio::sync::mpsc;
+use notify::{Config, RecursiveMode};
 
-type EventStream = mpsc::UnboundedReceiver<Result<notify::Event, notify::Error>>;
+
+pub type EventNotify = notify::Result<notify::Event>;
+pub type EventIo = io::Result<notify::Event>;
+pub type EventStream = mpsc::UnboundedReceiver<EventNotify>;
 
 fn notify_to_io_error(e: notify::Error) -> io::Error {
     match e.kind {
@@ -26,6 +30,25 @@ fn notify_to_io_error(e: notify::Error) -> io::Error {
     }
 }
 
+pin_project_lite::pin_project! {
+struct Inner<T, S> {
+    pub watcher: T,
+    #[pin]
+    pub event_stream: S,
+}
+}
+
+impl <T/*: Unpin*/, S: Stream<Item = EventNotify>/*+ Unpin*/> Stream for Inner<T, S> {
+    type Item = EventNotify;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut task::Context<'_>,
+    ) -> task::Poll<Option<Self::Item>> {
+        self.as_mut().project().event_stream.poll_next(cx)
+    }
+}
+
 /// Manages filesystem event watches, and can be polled to receive new events.
 ///
 /// Internally, `MuxedEvents` contains a [`notify::Watcher`] from where
@@ -33,18 +56,17 @@ fn notify_to_io_error(e: notify::Error) -> io::Error {
 /// and nonexistent file registration are added.
 ///
 /// [`notify::Watcher`]: https://docs.rs/notify/5.0.0-pre.2/notify/trait.Watcher.html
-pub struct MuxedEvents<T> {
-    inner: T,
+pub struct MuxedEvents<T, S> {
+    inner: Inner<T, S>,
     watched_directories: HashMap<PathBuf, usize>,
     /// Files that are successfully being watched
     watched_files: HashSet<PathBuf>,
     /// Files that don't exist yet, but will start once a create event comes
     /// in for the watched parent directory.
     pending_watched_files: HashSet<PathBuf>,
-    event_stream: EventStream,
 }
 
-impl<T> Debug for MuxedEvents<T> {
+impl<T, S> Debug for MuxedEvents<T, S> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         f.debug_struct("MuxedEvents")
             .field("watched_directories", &self.watched_directories)
@@ -54,11 +76,11 @@ impl<T> Debug for MuxedEvents<T> {
     }
 }
 
-impl MuxedEvents<notify::RecommendedWatcher> {
+impl MuxedEvents<notify::RecommendedWatcher, EventStream> {
     /// Constructs a new `MuxedEvents` instance.
     pub fn new() -> io::Result<Self> {
         let (tx, rx) = mpsc::unbounded_channel();
-        let inner: notify::RecommendedWatcher = NotifyWatcher::new_immediate(move |res| {
+        let watcher: notify::RecommendedWatcher = NotifyWatcher::new_immediate(move |res| {
             // The only way `send` can fail is if the receiver is dropped,
             // and `MuxedEvents` controls both. `unwrap` is not used,
             // however, since `Drop` idiosyncrasies could otherwise result
@@ -68,16 +90,15 @@ impl MuxedEvents<notify::RecommendedWatcher> {
         .map_err(notify_to_io_error)?;
 
         Ok(MuxedEvents {
-            inner,
+            inner: Inner { watcher, event_stream: rx },
             watched_directories: HashMap::new(),
             watched_files: HashSet::new(),
             pending_watched_files: HashSet::new(),
-            event_stream: rx,
         })
     }
 }
 
-impl<T: notify::Watcher> MuxedEvents<T> {
+impl<T: notify::Watcher, S> MuxedEvents<T, S> {
     fn watch_exists(&self, path: impl AsRef<Path>) -> bool {
         let path = path.as_ref();
 
@@ -103,7 +124,7 @@ impl<T: notify::Watcher> MuxedEvents<T> {
         // `watch` behavior is platform-specific, and on some (windows) can produce
         // duplicate events if called multiple times.
         if !self.watch_exists(path_ref) {
-            Self::watch(&mut self.inner, path_ref)?;
+            Self::watch(&mut self.inner.watcher, path_ref)?;
         }
 
         let count = self
@@ -124,7 +145,7 @@ impl<T: notify::Watcher> MuxedEvents<T> {
                 1 => {
                     // Remove from map first in case `unwatch` fails.
                     self.watched_directories.remove(path_ref);
-                    Self::unwatch(&mut self.inner, path_ref)?;
+                    Self::unwatch(&mut self.inner.watcher, path_ref)?;
                 }
                 _ => {
                     let new_count = self
@@ -171,7 +192,7 @@ impl<T: notify::Watcher> MuxedEvents<T> {
             self.add_directory(&parent)?;
             self.pending_watched_files.insert(path.clone());
         } else {
-            Self::watch(&mut self.inner, &path)?;
+            Self::watch(&mut self.inner.watcher, &path)?;
 
             self.watched_files.insert(path.clone());
         }
@@ -206,25 +227,28 @@ impl<T: notify::Watcher> MuxedEvents<T> {
 
         let _ = mem::replace(&mut event.paths, paths);
     }
+}
 
+impl<T/*: notify::Watcher + Unpin*/, S: Stream<Item=EventNotify> /*+  Unpin*/> MuxedEvents<T, S> {
     fn poll_next_event(
-        event_stream: Pin<&mut EventStream>,
+        event_stream: Pin<&mut S>,
         cx: &mut task::Context<'_>,
-    ) -> task::Poll<Option<io::Result<notify::Event>>> {
+    ) -> task::Poll<Option<EventIo>> {
         task::Poll::Ready(
             ready!(event_stream.poll_next(cx)).map(|res| res.map_err(notify_to_io_error)),
         )
     }
+
 }
 
-impl<T: notify::Watcher + Unpin> Stream for MuxedEvents<T> {
-    type Item = io::Result<notify::Event>;
+impl<T: notify::Watcher /*+ Unpin*/, S: Stream<Item=EventNotify> + Unpin> Stream for MuxedEvents<T, S> {
+    type Item = EventIo;
 
     fn poll_next(
         mut self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
     ) -> task::Poll<Option<Self::Item>> {
-        let mut res = ready!(Self::poll_next_event(Pin::new(&mut self.event_stream), cx));
+        let mut res = ready!(Self::poll_next_event(Pin::new(&mut self.inner.event_stream), cx));
 
         if let Some(Ok(ref mut event)) = res {
             self.handle_event(event);
