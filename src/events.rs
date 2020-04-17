@@ -38,6 +38,9 @@ struct Inner<T, S> {
 }
 }
 
+trait WatcherExt : notify::Watcher + Stream<Item=EventNotify> /*+ Sized*/ {}
+impl<U> WatcherExt for U where U: notify::Watcher + Stream<Item=EventNotify> /*+ Sized*/ {}
+
 impl <T/*: Unpin*/, S: Stream<Item = EventNotify>/*+ Unpin*/> Stream for Inner<T, S> {
     type Item = EventNotify;
 
@@ -75,8 +78,8 @@ impl <T: notify::Watcher, S> notify::Watcher for Inner<T, S> {
 /// and nonexistent file registration are added.
 ///
 /// [`notify::Watcher`]: https://docs.rs/notify/5.0.0-pre.2/notify/trait.Watcher.html
-pub struct MuxedEvents<T, S> {
-    inner: Inner<T, S>,
+pub struct MuxedEvents {
+    inner: Box<dyn WatcherExt + Unpin /*+ Send + Sync*/>, //Inner<T, S>,
     watched_directories: HashMap<PathBuf, usize>,
     /// Files that are successfully being watched
     watched_files: HashSet<PathBuf>,
@@ -85,7 +88,7 @@ pub struct MuxedEvents<T, S> {
     pending_watched_files: HashSet<PathBuf>,
 }
 
-impl<T, S> Debug for MuxedEvents<T, S> {
+impl Debug for MuxedEvents {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         f.debug_struct("MuxedEvents")
             .field("watched_directories", &self.watched_directories)
@@ -95,7 +98,7 @@ impl<T, S> Debug for MuxedEvents<T, S> {
     }
 }
 
-impl MuxedEvents<notify::RecommendedWatcher, EventStream> {
+impl MuxedEvents {
     /// Constructs a new `MuxedEvents` instance.
     pub fn new() -> io::Result<Self> {
         let (tx, rx) = mpsc::unbounded_channel();
@@ -109,7 +112,7 @@ impl MuxedEvents<notify::RecommendedWatcher, EventStream> {
         .map_err(notify_to_io_error)?;
 
         Ok(MuxedEvents {
-            inner: Inner { watcher, event_stream: rx },
+            inner: Box::new(Inner { watcher, event_stream: rx }),
             watched_directories: HashMap::new(),
             watched_files: HashSet::new(),
             pending_watched_files: HashSet::new(),
@@ -117,7 +120,7 @@ impl MuxedEvents<notify::RecommendedWatcher, EventStream> {
     }
 }
 
-impl<T: notify::Watcher, S> MuxedEvents<T, S> {
+impl MuxedEvents {
     fn watch_exists(&self, path: impl AsRef<Path>) -> bool {
         let path = path.as_ref();
 
@@ -248,8 +251,8 @@ impl<T: notify::Watcher, S> MuxedEvents<T, S> {
     }
 }
 
-impl<T/*: notify::Watcher + Unpin*/, S: Stream<Item=EventNotify> /*+  Unpin*/> MuxedEvents<T, S> {
-    fn poll_next_event(
+impl MuxedEvents {
+    fn poll_next_event<S: Stream<Item=EventNotify>>(
         event_stream: Pin<&mut S>,
         cx: &mut task::Context<'_>,
     ) -> task::Poll<Option<EventIo>> {
@@ -260,7 +263,7 @@ impl<T/*: notify::Watcher + Unpin*/, S: Stream<Item=EventNotify> /*+  Unpin*/> M
 
 }
 
-impl<T: notify::Watcher /*+ Unpin*/, S: Stream<Item=EventNotify> + Unpin> Stream for MuxedEvents<T, S> {
+impl Stream for MuxedEvents {
     type Item = EventIo;
 
     fn poll_next(
