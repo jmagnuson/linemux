@@ -28,7 +28,7 @@ use tokio::stream::StreamExt;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let mut lines = MuxedLines::new();
+    let mut lines = MuxedLines::new()?;
 
     // Register some files to be tailed, whether they currently exist or not.
     lines.add_file("some/file.log").await?;
@@ -39,6 +39,7 @@ async fn main() -> std::io::Result<()> {
     while let Some(Ok(line)) = lines.next().await {
         println!("source: {}, line: {}", line.source().display(), line.line());
     }
+    Ok(())
 }
 ```
 
