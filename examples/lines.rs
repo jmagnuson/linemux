@@ -7,7 +7,7 @@
 //! be written to them in order to generate lines.
 
 use linemux::MuxedLines;
-use tokio::{self, stream::StreamExt};
+use tokio::stream::StreamExt;
 
 #[tokio::main]
 pub async fn main() -> std::io::Result<()> {

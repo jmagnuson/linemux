@@ -22,9 +22,9 @@ linemux = "0.1"
 
 ## Example
 
-```rust,no_run
+```rust
 use linemux::MuxedLines;
-use tokio::{self, stream::StreamExt};
+use tokio::stream::StreamExt;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {

@@ -7,7 +7,7 @@ description = "A library providing asynchronous, multiplexed tailing for (namely
 documentation = "https://docs.rs/linemux"
 repository = "https://github.com/jmagnuson/linemux"
 readme = "README.md"
-keywords = ["tail", "lines", "watch", "fs", "events"]
+keywords = ["tail", "log", "watch", "fs", "events"]
 license = "MIT OR Apache-2.0"
 categories = ["asynchronous", "filesystem"]
 
