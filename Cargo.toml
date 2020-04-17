@@ -1,13 +1,13 @@
 [package]
 name = "linemux"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Jon Magnuson <jon.magnuson@gmail.com>"]
 edition = "2018"
 description = "A library providing asynchronous, multiplexed tailing for (namely log) files."
 documentation = "https://docs.rs/linemux"
 repository = "https://github.com/jmagnuson/linemux"
 readme = "README.md"
-keywords = ["tail", "lines", "watch", "fs", "events"]
+keywords = ["tail", "log", "watch", "fs", "events"]
 license = "MIT OR Apache-2.0"
 categories = ["asynchronous", "filesystem"]
 

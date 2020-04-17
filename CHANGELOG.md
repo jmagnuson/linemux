@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [Unreleased]
 
+## [0.1.1] - 2020-04-16
+
 ### Added
 - Add `Send` + `Sync` to `MuxedLines`.
 
@@ -15,5 +17,6 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 ### Added
 - Initial library features
 
-[Unreleased]: https://github.com/jmagnuson/linemux/compare/0.1.0...master
+[Unreleased]: https://github.com/jmagnuson/linemux/compare/0.1.1...master
+[0.1.1]: https://github.com/jmagnuson/linemux/compare/0.1.0...0.1.1
 [0.1.0]: https://github.com/jmagnuson/linemux/compare/8a30f75...0.1.0

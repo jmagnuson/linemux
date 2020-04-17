@@ -7,7 +7,7 @@
 //! will eventually be applied to them in order to generate events.
 
 use linemux::MuxedEvents;
-use tokio::{self, stream::StreamExt};
+use tokio::stream::StreamExt;
 
 #[tokio::main]
 pub async fn main() -> std::io::Result<()> {

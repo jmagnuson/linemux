@@ -7,7 +7,7 @@
 //!
 //! ```rust,no_run
 //! use linemux::MuxedLines;
-//! use tokio::{self, stream::StreamExt};
+//! use tokio::stream::StreamExt;
 //!
 //! #[tokio::main]
 //! async fn main() -> std::io::Result<()> {
