@@ -9,7 +9,7 @@ use std::pin::Pin;
 use std::task;
 
 use futures_util::ready;
-use notify;
+use notify::Watcher as NotifyWatcher;
 use tokio::stream::Stream;
 use tokio::sync::mpsc;
 
@@ -58,7 +58,7 @@ impl MuxedEvents {
     /// Constructs a new `MuxedEvents` instance.
     pub fn new() -> io::Result<Self> {
         let (tx, rx) = mpsc::unbounded_channel();
-        let inner: notify::RecommendedWatcher = notify::Watcher::new_immediate(move |res| {
+        let inner: notify::RecommendedWatcher = NotifyWatcher::new_immediate(move |res| {
             // The only way `send` can fail is if the receiver is dropped,
             // and `MuxedEvents` controls both. `unwrap` is not used,
             // however, since `Drop` idiosyncrasies could otherwise result
@@ -86,14 +86,12 @@ impl MuxedEvents {
     }
 
     fn watch(watcher: &mut notify::RecommendedWatcher, path: impl AsRef<Path>) -> io::Result<()> {
-        use notify::Watcher;
         watcher
             .watch(path, notify::RecursiveMode::NonRecursive)
             .map_err(notify_to_io_error)
     }
 
     fn unwatch(watcher: &mut notify::RecommendedWatcher, path: impl AsRef<Path>) -> io::Result<()> {
-        use notify::Watcher;
         watcher.unwatch(path).map_err(notify_to_io_error)
     }
 
@@ -103,7 +101,7 @@ impl MuxedEvents {
         // `watch` behavior is platform-specific, and on some (windows) can produce
         // duplicate events if called multiple times.
         if !self.watch_exists(path_ref) {
-            notify::Watcher::watch(
+            NotifyWatcher::watch(
                 &mut self.inner,
                 path_ref,
                 notify::RecursiveMode::NonRecursive,
@@ -290,12 +288,11 @@ mod tests {
     use super::absolutify;
     use super::MuxedEvents;
     use crate::events::notify_to_io_error;
-    use notify;
     use std::time::Duration;
     use tempdir::TempDir;
-    use tokio;
     use tokio::fs::File;
     use tokio::stream::StreamExt;
+    use tokio::time::timeout;
 
     #[test]
     fn test_add_directory() {
@@ -343,13 +340,8 @@ mod tests {
         assert_eq!(watcher.pending_watched_files.len(), 2);
         assert!(watcher.watched_directories.contains_key(&pathclone));
 
-        tokio::select!(
-            _event = watcher.next() => {
-                println!("Got (hopefully directory) event");
-            }
-            _ = tokio::time::delay_for(Duration::from_secs(1)) => {
-            }
-        );
+        // Flush possible directory creation event
+        let _res = timeout(Duration::from_secs(1), watcher.next()).await;
 
         let mut _file1 = File::create(&file_path1)
             .await
@@ -381,13 +373,10 @@ mod tests {
 
         // Deleting a file should throw it back into pending
         tokio::fs::remove_file(&file_path1).await.unwrap();
-        tokio::select!(
-            _event = watcher.next() => {
-                println!("Should have handled file deletion");
-            }
-            _ = tokio::time::delay_for(Duration::from_millis(100)) => {
-            }
-        );
+
+        // Flush possible file deletion event
+        let _res = timeout(Duration::from_millis(100), watcher.next()).await;
+
         assert_eq!(watcher.watched_files.len(), 1);
         assert!(watcher.watched_directories.contains_key(&pathclone));
 
