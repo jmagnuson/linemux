@@ -22,5 +22,6 @@ pin-project-lite = "0.1"
 tokio = { version = "0.2", features = ["fs", "io-util", "stream", "sync", "time"] }
 
 [dev-dependencies]
+doc-comment = "0.3"
 tempdir = "0.3"
 tokio = { version = "0.2", features = ["macros"] }
