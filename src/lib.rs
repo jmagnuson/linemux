@@ -5,7 +5,7 @@
 //!
 //! ## Example
 //!
-//! ```rust,no_run
+//! ```no_run
 //! use linemux::MuxedLines;
 //! use tokio::stream::StreamExt;
 //!
@@ -39,3 +39,6 @@ mod reader;
 
 pub use events::MuxedEvents;
 pub use reader::{Line, MuxedLines};
+
+#[cfg(doctest)]
+doc_comment::doctest!("../README.md");

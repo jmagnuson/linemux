@@ -22,7 +22,7 @@ linemux = "0.1"
 
 ## Example
 
-```rust
+```rust,no_run
 use linemux::MuxedLines;
 use tokio::stream::StreamExt;
 

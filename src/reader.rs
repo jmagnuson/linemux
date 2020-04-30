@@ -404,7 +404,6 @@ mod tests {
     use super::*;
     use std::time::Duration;
     use tempdir::TempDir;
-    use tokio;
     use tokio::fs::File;
     use tokio::io::AsyncWriteExt;
     use tokio::stream::StreamExt;
@@ -549,12 +548,11 @@ mod tests {
             .await
             .expect("Failed to create file");
 
-        tokio::select!(
-            _event = lines.next() => {
-                panic!("Should not be any lines yet");
-            }
-            _ = tokio::time::delay_for(Duration::from_millis(100)) => {
-            }
+        assert!(
+            timeout(Duration::from_millis(100), lines.next())
+                .await
+                .is_err(),
+            "Should not be any lines yet",
         );
 
         // Now the files should be readable
