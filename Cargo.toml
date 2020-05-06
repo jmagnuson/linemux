@@ -17,7 +17,8 @@ codecov = { repository = "jmagnuson/linemux", branch = "master", service = "gith
 
 [dependencies]
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
-notify = "5.0.0-pre.2"
+#notify = "5.0.0-pre.2"
+notify = { git = "https://github.com/jmagnuson/notify", branch = "watcher-not-sized" }
 pin-project-lite = "0.1"
 tokio = { version = "0.2", features = ["fs", "io-util", "stream", "sync", "time"] }
 

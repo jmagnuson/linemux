@@ -40,6 +40,8 @@ struct Inner<T, S> {
 
 trait WatcherExt : notify::Watcher + Stream<Item=EventNotify> /*+ Sized*/ {}
 impl<U> WatcherExt for U where U: notify::Watcher + Stream<Item=EventNotify> /*+ Sized*/ {}
+//impl<U> WatcherExt for Box<U> where U: WatcherExt /*+ Sized*/ {}
+//impl WatcherExt for Inner<notify::RecommendedWatcher, EventStream> {}
 
 impl <T/*: Unpin*/, S: Stream<Item = EventNotify>/*+ Unpin*/> Stream for Inner<T, S> {
     type Item = EventNotify;
@@ -58,11 +60,11 @@ impl <T: notify::Watcher, S> notify::Watcher for Inner<T, S> {
         unimplemented!("do not call constructor for Watcher wrapper")
     }
 
-    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> notify::Result<()> {
+    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> notify::Result<()> {
         self.watcher.watch(path, recursive_mode)
     }
 
-    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> notify::Result<()> {
+    fn unwatch(&mut self, path: &Path) -> notify::Result<()> {
         self.watcher.unwatch(path)
     }
 
@@ -79,7 +81,7 @@ impl <T: notify::Watcher, S> notify::Watcher for Inner<T, S> {
 ///
 /// [`notify::Watcher`]: https://docs.rs/notify/5.0.0-pre.2/notify/trait.Watcher.html
 pub struct MuxedEvents {
-    inner: Box<dyn WatcherExt + Unpin /*+ Send + Sync*/>, //Inner<T, S>,
+    inner: Box<dyn WatcherExt + 'static + Unpin + Send + Sync>, //Inner<T, S>,
     watched_directories: HashMap<PathBuf, usize>,
     /// Files that are successfully being watched
     watched_files: HashSet<PathBuf>,
@@ -131,13 +133,14 @@ impl MuxedEvents {
     }
 
     fn watch(watcher: &mut impl notify::Watcher, path: impl AsRef<Path>) -> io::Result<()> {
-        watcher
-            .watch(path, notify::RecursiveMode::NonRecursive)
+        notify::Watcher::watch(watcher, path.as_ref(), notify::RecursiveMode::NonRecursive)
+        // watcher
+        //     .watch(path.as_ref(), notify::RecursiveMode::NonRecursive)
             .map_err(notify_to_io_error)
     }
 
     fn unwatch(watcher: &mut impl notify::Watcher, path: impl AsRef<Path>) -> io::Result<()> {
-        watcher.unwatch(path).map_err(notify_to_io_error)
+        watcher.unwatch(path.as_ref()).map_err(notify_to_io_error)
     }
 
     fn add_directory(&mut self, path: impl AsRef<Path>) -> io::Result<()> {
@@ -146,7 +149,7 @@ impl MuxedEvents {
         // `watch` behavior is platform-specific, and on some (windows) can produce
         // duplicate events if called multiple times.
         if !self.watch_exists(path_ref) {
-            Self::watch(&mut self.inner, path_ref)?;
+            Self::watch(&mut *self.inner, path_ref)?;
         }
 
         let count = self
@@ -270,7 +273,7 @@ impl Stream for MuxedEvents {
         mut self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
     ) -> task::Poll<Option<Self::Item>> {
-        let mut res = ready!(Self::poll_next_event(Pin::new(&mut self.inner.event_stream), cx));
+        let mut res = ready!(Self::poll_next_event(Pin::new(&mut self.inner), cx));
 
         if let Some(Ok(ref mut event)) = res {
             self.handle_event(event);
