@@ -40,6 +40,8 @@ struct Inner<T, S> {
 
 trait WatcherExt : notify::Watcher + Stream<Item=EventNotify> /*+ Sized*/ {}
 impl<U> WatcherExt for U where U: notify::Watcher + Stream<Item=EventNotify> /*+ Sized*/ {}
+// impl<U> WatcherExt for Box<U> where U: WatcherExt {}
+
 //impl<U> WatcherExt for Box<U> where U: WatcherExt /*+ Sized*/ {}
 //impl WatcherExt for Inner<notify::RecommendedWatcher, EventStream> {}
 
@@ -55,10 +57,10 @@ impl <T/*: Unpin*/, S: Stream<Item = EventNotify>/*+ Unpin*/> Stream for Inner<T
 }
 
 impl <T: notify::Watcher, S> notify::Watcher for Inner<T, S> {
-    fn new_immediate<F>(event_fn: F) -> notify::Result<Self> where
+    /*fn new_immediate<F>(event_fn: F) -> notify::Result<Self> where
         F: notify::EventFn {
         unimplemented!("do not call constructor for Watcher wrapper")
-    }
+    }*/
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> notify::Result<()> {
         self.watcher.watch(path, recursive_mode)
@@ -104,7 +106,7 @@ impl MuxedEvents {
     /// Constructs a new `MuxedEvents` instance.
     pub fn new() -> io::Result<Self> {
         let (tx, rx) = mpsc::unbounded_channel();
-        let watcher: notify::RecommendedWatcher = NotifyWatcher::new_immediate(move |res| {
+        let watcher: notify::RecommendedWatcher = notify::immediate_watcher(move |res| {
             // The only way `send` can fail is if the receiver is dropped,
             // and `MuxedEvents` controls both. `unwrap` is not used,
             // however, since `Drop` idiosyncrasies could otherwise result
@@ -132,29 +134,30 @@ impl MuxedEvents {
             || self.watched_directories.contains_key(&path.to_path_buf())
     }
 
-    fn watch(watcher: &mut impl notify::Watcher, path: impl AsRef<Path>) -> io::Result<()> {
-        notify::Watcher::watch(watcher, path.as_ref(), notify::RecursiveMode::NonRecursive)
+    //fn watch(watcher: &mut impl notify::Watcher, path: impl AsRef<Path>) -> io::Result<()> {
+    fn watch<W: NotifyWatcher + ?Sized>(watcher: &mut W, path: impl AsRef<Path>) -> io::Result<()> {
+        watcher.watch(path.as_ref(), notify::RecursiveMode::NonRecursive)
         // watcher
         //     .watch(path.as_ref(), notify::RecursiveMode::NonRecursive)
             .map_err(notify_to_io_error)
     }
 
-    fn unwatch(watcher: &mut impl notify::Watcher, path: impl AsRef<Path>) -> io::Result<()> {
+    fn unwatch/*<W: NotifyWatcher + ?Sized>*/(watcher: &mut dyn WatcherExt, path: impl AsRef<Path>) -> io::Result<()> {
         watcher.unwatch(path.as_ref()).map_err(notify_to_io_error)
     }
 
-    fn add_directory(&mut self, path: impl AsRef<Path>) -> io::Result<()> {
-        let path_ref = path.as_ref();
+    fn add_directory(&mut self, path: impl AsRef<Path> + Copy) -> io::Result<()> {
+        // let path_ref = path.as_ref();
 
         // `watch` behavior is platform-specific, and on some (windows) can produce
         // duplicate events if called multiple times.
-        if !self.watch_exists(path_ref) {
-            Self::watch(&mut *self.inner, path_ref)?;
+        if !self.watch_exists(path) {
+            Self::watch(&mut *self.inner, path)?;
         }
 
         let count = self
             .watched_directories
-            .entry(path_ref.to_owned())
+            .entry(path.as_ref().to_owned())
             .or_insert(0);
         *count += 1;
 
@@ -170,7 +173,7 @@ impl MuxedEvents {
                 1 => {
                     // Remove from map first in case `unwatch` fails.
                     self.watched_directories.remove(path_ref);
-                    Self::unwatch(&mut self.inner, path_ref)?;
+                    Self::unwatch(self.inner.as_mut(), path_ref)?;
                 }
                 _ => {
                     let new_count = self
@@ -217,7 +220,7 @@ impl MuxedEvents {
             self.add_directory(&parent)?;
             self.pending_watched_files.insert(path.clone());
         } else {
-            Self::watch(&mut self.inner, &path)?;
+            Self::watch(self.inner.as_mut(), &path)?;
 
             self.watched_files.insert(path.clone());
         }
