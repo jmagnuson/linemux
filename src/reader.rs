@@ -690,4 +690,79 @@ mod tests {
 
         drop(lines);
     }
+
+    #[tokio::test]
+    async fn test_file_rollover() {
+        use tokio::time::timeout;
+
+        let tmp_dir = TempDir::new("missing-filedir").expect("Failed to create tempdir");
+        let tmp_dir_path = tmp_dir.path();
+
+        let file_path1 = tmp_dir_path.join("missing_file1.txt");
+
+        let mut lines = MuxedLines::new().unwrap();
+        lines.add_file(&file_path1).await.unwrap();
+
+        let mut _file1 = File::create(&file_path1)
+            .await
+            .expect("Failed to create file");
+        _file1.write_all(b"bar\nbaz\n").await.unwrap();
+        _file1.sync_all().await.unwrap();
+        tokio::time::delay_for(Duration::from_millis(100)).await;
+        {
+            let line1 = timeout(Duration::from_millis(100), lines.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert!(line1
+                .source()
+                .to_str()
+                .unwrap()
+                .contains("missing_file1.txt"));
+            assert_eq!(line1.line(), "bar");
+        }
+        {
+            let line1 = timeout(Duration::from_millis(100), lines.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert!(line1
+                .source()
+                .to_str()
+                .unwrap()
+                .contains("missing_file1.txt"));
+            assert_eq!(line1.line(), "baz");
+        }
+
+        // Reset cursor
+        _file1.seek(io::SeekFrom::Start(0)).await.unwrap();
+        let _ = timeout(Duration::from_millis(100), lines.next()).await;
+
+        // Roll over
+        _file1.set_len(0).await.unwrap();
+
+        // TODO: Can we still catch roll without flushing?
+        let _ = timeout(Duration::from_millis(100), lines.next()).await;
+
+        _file1.write_all(b"qux").await.unwrap();
+        _file1.sync_all().await.unwrap();
+        _file1.shutdown().await.unwrap();
+        drop(_file1);
+        tokio::time::delay_for(Duration::from_millis(100)).await;
+        {
+            let line1 = timeout(Duration::from_millis(100), lines.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert!(line1
+                .source()
+                .to_str()
+                .unwrap()
+                .contains("missing_file1.txt"));
+            assert_eq!(line1.line(), "qux");
+        }
+    }
 }
