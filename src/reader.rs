@@ -765,4 +765,57 @@ mod tests {
             assert_eq!(line1.line(), "qux");
         }
     }
+
+    #[tokio::test]
+    async fn test_ops_in_transient_state() {
+        use futures_util::future::poll_fn;
+        use tokio::stream::Stream;
+        use tokio::time::timeout;
+
+        let tmp_dir = TempDir::new("missing-filedir").expect("Failed to create tempdir");
+        let tmp_dir_path = tmp_dir.path();
+
+        let file_path1 = tmp_dir_path.join("missing_file1.txt");
+
+        let mut lines = MuxedLines::new().unwrap();
+        lines.add_file(&file_path1).await.unwrap();
+
+        let mut _file1 = File::create(&file_path1)
+            .await
+            .expect("Failed to create file");
+        _file1.write_all(b"bar\n").await.unwrap();
+        _file1.sync_all().await.unwrap();
+        tokio::time::delay_for(Duration::from_millis(100)).await;
+
+        let maybe_pending =
+            poll_fn(|cx| task::Poll::Ready(Pin::new(&mut lines).poll_next(cx))).await;
+        assert!(maybe_pending.is_pending());
+
+        // TODO: Deterministic state checking?
+        //let maybe_pending = poll_fn(|cx| task::Poll::Ready(Pin::new(&mut lines).poll_next(cx))).await;
+        //assert!(maybe_pending.is_pending());
+
+        let file_path2 = tmp_dir_path.join("missing_file2.txt");
+        lines.add_file(&file_path2).await.unwrap();
+
+        // TODO: Find a way to guarantee this
+        //assert_eq!(lines.inner.readers.len(), 1);
+
+        // This should be guaranteed
+        assert_eq!(lines.inner.pending_readers.len(), 1);
+
+        {
+            let line1 = timeout(Duration::from_millis(100), lines.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert!(line1
+                .source()
+                .to_str()
+                .unwrap()
+                .contains("missing_file1.txt"));
+            assert_eq!(line1.line(), "bar");
+        }
+    }
 }
