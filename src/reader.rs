@@ -149,7 +149,7 @@ pin_project! {
 pub struct MuxedLines {
     #[pin]
     events: crate::MuxedEvents,
-    inner: Option<Inner>,
+    inner: Inner,
     stream_state: StreamState,
 }
 }
@@ -158,14 +158,14 @@ impl MuxedLines {
     pub fn new() -> io::Result<Self> {
         Ok(MuxedLines {
             events: crate::MuxedEvents::new()?,
-            inner: Some(Inner::new()),
+            inner: Inner::new(),
             stream_state: StreamState::default(),
         })
     }
 
     fn reader_exists(&self, path: &PathBuf) -> bool {
         // Make sure there isn't already a reader for the file
-        self.inner.as_ref().unwrap().reader_exists(path)
+        self.inner.reader_exists(path)
     }
 
     /// Adds a given file to the lines watch, allowing for files which do not
@@ -184,7 +184,7 @@ impl MuxedLines {
         }
 
         if !source.exists() {
-            let didnt_exist = self.inner.as_mut().unwrap().insert_pending(source.clone());
+            let didnt_exist = self.inner.insert_pending(source.clone());
 
             // If this fails it's a bug
             assert!(didnt_exist);
@@ -193,7 +193,7 @@ impl MuxedLines {
 
             let reader = new_linereader(&source, Some(size)).await?;
 
-            let inner_mut = self.inner.as_mut().unwrap();
+            let inner_mut = &mut self.inner;
             inner_mut.insert_reader_position(source.clone(), size);
             let last = inner_mut.insert_reader(source.clone(), reader);
 
@@ -206,12 +206,9 @@ impl MuxedLines {
     }
 }
 
-type HandleEventFuture =
-    Pin<Box<dyn Future<Output = (Inner, Option<io::Result<()>>)> + Send + Sync>>;
-
 enum StreamState {
     Events,
-    HandleEvent(notify::Event, HandleEventFuture),
+    HandleEvent(notify::Event, HandleEventState),
     ReadLines(Vec<PathBuf>, usize),
 }
 
@@ -245,73 +242,164 @@ impl Default for StreamState {
     }
 }
 
-async fn handle_event(event: notify::Event, mut inner: Inner) -> (Inner, Option<io::Result<()>>) {
-    // TODO: This should return a PathBuf
+type MetadataFuture = Pin<Box<dyn Future<Output = io::Result<std::fs::Metadata>> + Send + Sync>>;
+type NewLineReaderFuture = Pin<Box<dyn Future<Output = io::Result<LineReader>> + Send + Sync>>;
 
-    match &event.kind {
-        // Assumes starting tail position of 0
-        notify::EventKind::Create(create_event) => {
-            // Windows returns `Any` for file creation, so handle that
-            match (cfg!(target_os = "windows"), create_event) {
-                (_, notify::event::CreateKind::File) => {}
-                (true, notify::event::CreateKind::Any) => {}
-                (_, _) => {
-                    return (inner, None);
-                }
-            }
+struct HandleEventState {
+    path_index: usize,
+    await_state: HandleEventAwaitState,
+}
 
-            for path in &event.paths {
-                let _preset = inner.remove_pending(path);
-
-                // TODO: Handle error for each failed path
-                let reader = unwrap_res_or_continue!(new_linereader(path, None).await);
-
-                // Don't really care about old values, we got create
-                let _previous_reader = inner.insert_reader(path.clone(), reader);
-                let _previous_pos = inner.insert_reader_position(path.clone(), 0);
-            }
+impl HandleEventState {
+    pub fn new() -> Self {
+        HandleEventState {
+            path_index: 0,
+            await_state: Default::default(),
         }
-
-        // Resets the reader to the beginning of the file if rotated (size < pos)
-        notify::EventKind::Modify(modify_event) => {
-            // Windows returns `Any` for file modification, so handle that
-            match (cfg!(target_os = "windows"), modify_event) {
-                (_, notify::event::ModifyKind::Data(_)) => {}
-                (true, notify::event::ModifyKind::Any) => {}
-                (_, _) => {
-                    return (inner, None);
-                }
-            }
-
-            // TODO: Currently assumes entry exists in `readers` for given path
-
-            for path in &event.paths {
-                let size = unwrap_res_or_continue!(metadata(path).await).len();
-
-                let pos = inner
-                    .reader_positions
-                    .get_mut(path)
-                    .expect("missing reader position");
-
-                if size < *pos {
-                    // rolled
-                    *pos = 0;
-
-                    let reader = unwrap_res_or_continue!(new_linereader(path, None).await);
-
-                    let _previous_reader = inner.insert_reader(path.clone(), reader);
-                } else {
-                    // didn't roll, just update size
-                    *pos = size;
-                }
-            }
-        }
-
-        // Ignored event that doesn't warrant reading files
-        _ => return (inner, None),
     }
+}
 
-    (inner, Some(Ok(())))
+enum HandleEventAwaitState {
+    Idle,
+    Metadata(MetadataFuture),
+    NewLineReader(NewLineReaderFuture),
+}
+
+impl Default for HandleEventAwaitState {
+    fn default() -> Self {
+        HandleEventAwaitState::Idle
+    }
+}
+
+impl HandleEventAwaitState {
+    pub fn replace(&mut self, new_state: Self) -> HandleEventAwaitState {
+        let mut old_state = new_state;
+
+        std::mem::swap(self, &mut old_state);
+
+        old_state
+    }
+}
+
+fn poll_handle_event(
+    inner: &mut Inner,
+    event: &mut notify::Event,
+    state: &mut HandleEventState,
+    cx: &mut task::Context<'_>,
+) -> task::Poll<io::Result<()>> {
+    loop {
+        if state.path_index >= event.paths.len() {
+            // Done
+            return task::Poll::Ready(Ok(()));
+        }
+
+        let maybe_new_state = match &event.kind {
+            // Assumes starting tail position of 0
+            notify::EventKind::Create(create_event) => {
+                match state.await_state {
+                    HandleEventAwaitState::Idle => {
+                        // Windows returns `Any` for file creation, so handle that
+                        match (cfg!(target_os = "windows"), create_event) {
+                            (_, notify::event::CreateKind::File) => {}
+                            (true, notify::event::CreateKind::Any) => {}
+                            (_, _) => {
+                                state.path_index += 1;
+                                continue;
+                            }
+                        }
+
+                        let path = event.paths.get(state.path_index).expect("Got None Path");
+
+                        let _preset = inner.remove_pending(path);
+
+                        let reader_fut = Box::pin(new_linereader(path.clone(), None));
+
+                        Some(HandleEventAwaitState::NewLineReader(reader_fut))
+                    }
+                    HandleEventAwaitState::NewLineReader(ref mut reader_fut) => {
+                        let reader_res = ready!(reader_fut.as_mut().poll(cx));
+                        if let Ok(reader) = reader_res {
+                            let path = event.paths.get(state.path_index).expect("Got None Path");
+
+                            // Don't really care about old values, we got create
+                            let _previous_reader = inner.insert_reader(path.clone(), reader);
+                            let _previous_pos = inner.insert_reader_position(path.clone(), 0);
+                        }
+                        state.path_index += 1;
+                        Some(HandleEventAwaitState::Idle)
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            notify::EventKind::Modify(modify_event) => {
+                match state.await_state {
+                    HandleEventAwaitState::Idle => {
+                        // Windows returns `Any` for file modification, so handle that
+                        match (cfg!(target_os = "windows"), modify_event) {
+                            (_, notify::event::ModifyKind::Data(_)) => {}
+                            (true, notify::event::ModifyKind::Any) => {}
+                            (_, _) => {
+                                state.path_index += 1;
+                                continue;
+                            }
+                        }
+
+                        let path = event.paths.get(state.path_index).expect("Got None Path");
+                        let metadata_fut = Box::pin(metadata(path.clone()));
+                        Some(HandleEventAwaitState::Metadata(metadata_fut))
+                    }
+                    HandleEventAwaitState::Metadata(ref mut metadata_fut) => {
+                        let metadata_res = ready!(metadata_fut.as_mut().poll(cx));
+                        if let Ok(metadata) = metadata_res {
+                            let path = event.paths.get(state.path_index).expect("Got None Path");
+                            let pos = inner
+                                .reader_positions
+                                .get_mut(path)
+                                .expect("missing reader position");
+
+                            let size = metadata.len();
+
+                            if size < *pos {
+                                // rolled
+                                *pos = 0;
+
+                                let reader_fut = Box::pin(new_linereader(path.clone(), None));
+
+                                Some(HandleEventAwaitState::NewLineReader(reader_fut))
+                            } else {
+                                // didn't roll, just update size
+                                *pos = size;
+
+                                state.path_index += 1;
+                                Some(HandleEventAwaitState::Idle)
+                            }
+                        } else {
+                            state.path_index += 1;
+                            Some(HandleEventAwaitState::Idle)
+                        }
+                    }
+                    HandleEventAwaitState::NewLineReader(ref mut reader_fut) => {
+                        let reader_res = ready!(reader_fut.as_mut().poll(cx));
+                        if let Ok(reader) = reader_res {
+                            let path = event.paths.get(state.path_index).expect("Got None Path");
+
+                            // Don't really care about old values, we got create
+                            let _previous_reader = inner.insert_reader(path.clone(), reader);
+                        }
+                        state.path_index += 1;
+                        Some(HandleEventAwaitState::Idle)
+                    }
+                }
+            }
+            _ => {
+                state.path_index += 1;
+                None
+            }
+        };
+        if let Some(new_state) = maybe_new_state {
+            let _ = state.await_state.replace(new_state);
+        }
+    }
 }
 
 impl Stream for MuxedLines {
@@ -324,29 +412,24 @@ impl Stream for MuxedLines {
         let this = self.project();
 
         let mut events = this.events;
-        let inner = this.inner;
+        let mut inner = this.inner;
         let stream_state = this.stream_state;
 
         loop {
             let (new_state, maybe_line) = match stream_state {
                 StreamState::Events => {
-                    let event = unwrap_res_or_continue!(unwrap_or_continue!(ready!(Pin::new(
-                        &mut *events
+                    let event = unwrap_res_or_continue!(unwrap_or_continue!(ready!(events
+                        .as_mut()
+                        .poll_next(cx))));
+                    (
+                        StreamState::HandleEvent(event, HandleEventState::new()),
+                        None,
                     )
-                    .poll_next(cx))));
-                    // Temporarily take the inner reader context so that it can
-                    // be modified within async/await Future.
-                    let inner_taken = inner.take().expect("There was no inner to take");
-                    let fut = Box::pin(handle_event(event.clone(), inner_taken));
-                    (StreamState::HandleEvent(event, fut), None)
                 }
-                StreamState::HandleEvent(ref mut event, ref mut fut) => {
-                    let (inner_taken, res) = ready!(Pin::new(&mut *fut).poll(cx));
-                    let _isnone = inner.replace(inner_taken);
-                    assert!(_isnone.is_none());
-
+                StreamState::HandleEvent(ref mut event, ref mut state) => {
+                    let res = ready!(poll_handle_event(&mut inner, event, state, cx));
                     match res {
-                        Some(Ok(())) => {
+                        Ok(()) => {
                             if event.paths.is_empty() {
                                 (StreamState::Events, None)
                             } else {
@@ -359,7 +442,7 @@ impl Stream for MuxedLines {
                 }
                 StreamState::ReadLines(paths, ref mut path_index) => {
                     if let Some(path) = paths.get(*path_index) {
-                        if let Some(reader) = inner.as_mut().unwrap().readers.get_mut(path) {
+                        if let Some(reader) = inner.readers.get_mut(path) {
                             let res = ready!(Pin::new(reader).poll_next(cx));
 
                             match res {
@@ -488,10 +571,8 @@ mod tests {
         let mut state = StreamState::default();
         let _ = format!("{:?}", state);
 
-        let inner = Inner::new();
         let event = notify::Event::new(notify::EventKind::Other);
-        let fut = Box::pin(handle_event(event.clone(), inner));
-        state = StreamState::HandleEvent(event, fut);
+        state = StreamState::HandleEvent(event, HandleEventState::new());
         let _ = format!("{:?}", state);
 
         state = StreamState::ReadLines(vec![], 0);
@@ -539,7 +620,7 @@ mod tests {
         // Registering the same path again should be fine
         lines.add_file(&file_path2).await.unwrap();
 
-        assert_eq!(lines.inner.as_ref().unwrap().pending_readers.len(), 2);
+        assert_eq!(lines.inner.pending_readers.len(), 2);
 
         let mut _file1 = File::create(&file_path1)
             .await
@@ -556,7 +637,7 @@ mod tests {
         );
 
         // Now the files should be readable
-        assert_eq!(lines.inner.as_ref().unwrap().readers.len(), 2);
+        assert_eq!(lines.inner.readers.len(), 2);
 
         _file1.write_all(b"foo\n").await.unwrap();
         _file1.sync_all().await.unwrap();
