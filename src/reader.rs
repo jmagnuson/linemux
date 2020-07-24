@@ -800,6 +800,10 @@ mod tests {
             // TODO: Deterministic state checking?
             maybe_pending =
                 poll_fn(|cx| task::Poll::Ready(Pin::new(&mut lines).poll_next(cx))).await;
+
+            if maybe_pending.is_pending() {
+                break;
+            }
         }
         assert!(maybe_pending.is_pending());
 
