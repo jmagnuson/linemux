@@ -789,7 +789,7 @@ mod tests {
         let mut _file1 = File::create(&file_path1)
             .await
             .expect("Failed to create file");
-        _file1.write_all(b"bar\n").await.unwrap();
+        _file1.write_all(b"bar").await.unwrap();
         _file1.sync_all().await.unwrap();
         tokio::time::delay_for(Duration::from_millis(100)).await;
 
@@ -812,6 +812,10 @@ mod tests {
         let file_path2 = tmp_dir_path.join("missing_file2.txt");
         lines.add_file(&file_path2).await.unwrap();
 
+        _file1.write_all(b"bar\n").await.unwrap();
+        _file1.sync_all().await.unwrap();
+        tokio::time::delay_for(Duration::from_millis(10)).await;
+
         // TODO: Find a way to guarantee this
         //assert_eq!(lines.inner.readers.len(), 1);
 
@@ -829,7 +833,7 @@ mod tests {
                 .to_str()
                 .unwrap()
                 .contains("missing_file1.txt"));
-            assert_eq!(line1.line(), "bar");
+            assert_eq!(line1.line(), "barbar");
         }
     }
 }
