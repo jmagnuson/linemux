@@ -790,7 +790,6 @@ mod tests {
             .await
             .expect("Failed to create file");
         _file1.write_all(b"bar").await.unwrap();
-        _file1.sync_all().await.unwrap();
         tokio::time::delay_for(Duration::from_millis(100)).await;
 
         let mut maybe_pending = std::task::Poll::Ready(None);
