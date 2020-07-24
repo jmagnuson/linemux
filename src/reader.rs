@@ -801,8 +801,10 @@ mod tests {
             maybe_pending =
                 poll_fn(|cx| task::Poll::Ready(Pin::new(&mut lines).poll_next(cx))).await;
 
-            if maybe_pending.is_pending() {
-                break;
+            if let StreamState::HandleEvent(..) = lines.stream_state {
+                if maybe_pending.is_pending() {
+                    break;
+                }
             }
         }
         assert!(maybe_pending.is_pending());
