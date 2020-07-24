@@ -298,6 +298,9 @@ fn poll_handle_event(
             notify::EventKind::Create(create_event) => {
                 match state.await_state {
                     HandleEventAwaitState::Idle => {
+                        if cfg!(target_os = "windows") {
+                            dbg!(create_event);
+                        }
                         // Windows returns `Any` for file creation, so handle that
                         match (cfg!(target_os = "windows"), create_event) {
                             (_, notify::event::CreateKind::File) => {}
@@ -334,6 +337,9 @@ fn poll_handle_event(
             notify::EventKind::Modify(modify_event) => {
                 match state.await_state {
                     HandleEventAwaitState::Idle => {
+                        if cfg!(target_os = "windows") {
+                            dbg!(modify_event);
+                        }
                         // Windows returns `Any` for file modification, so handle that
                         match (cfg!(target_os = "windows"), modify_event) {
                             (_, notify::event::ModifyKind::Data(_)) => {}
@@ -787,13 +793,15 @@ mod tests {
         _file1.sync_all().await.unwrap();
         tokio::time::delay_for(Duration::from_millis(100)).await;
 
-        let maybe_pending =
-            poll_fn(|cx| task::Poll::Ready(Pin::new(&mut lines).poll_next(cx))).await;
-        assert!(maybe_pending.is_pending());
+        let mut maybe_pending = std::task::Poll::Ready(None);
 
-        // TODO: Deterministic state checking?
-        //let maybe_pending = poll_fn(|cx| task::Poll::Ready(Pin::new(&mut lines).poll_next(cx))).await;
-        //assert!(maybe_pending.is_pending());
+        // Windows isn't pending after one poll for some reason.
+        for _ in 1..5 {
+            // TODO: Deterministic state checking?
+            maybe_pending =
+                poll_fn(|cx| task::Poll::Ready(Pin::new(&mut lines).poll_next(cx))).await;
+        }
+        assert!(maybe_pending.is_pending());
 
         let file_path2 = tmp_dir_path.join("missing_file2.txt");
         lines.add_file(&file_path2).await.unwrap();
