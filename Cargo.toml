@@ -16,7 +16,7 @@ travis-ci = { repository = "jmagnuson/linemux", branch = "master" }
 codecov = { repository = "jmagnuson/linemux", branch = "master", service = "github" }
 
 [dependencies]
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
+futures-util = { version = "0.3.5", default-features = false, features = ["std"] }
 #notify = "5.0.0-pre.2"
 #notify = { git = "https://github.com/jmagnuson/notify", branch = "watcher-not-sized" }
 notify = { path = "../notify" }
