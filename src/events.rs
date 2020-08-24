@@ -377,7 +377,7 @@ mod tests {
             .await
             .expect("Failed to create file");
 
-        let expected_event = if cfg!(any(target_os = "windows", target_os = "freebsd")) {
+        let expected_event = if cfg!(any(target_os = "windows", target_os = "freebsd", target_os = "macos")) {
             notify::EventKind::Create(notify::event::CreateKind::Any)
         } else {
             notify::EventKind::Create(notify::event::CreateKind::File)
