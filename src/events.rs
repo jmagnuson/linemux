@@ -10,6 +10,12 @@ use std::task;
 
 use futures_util::ready;
 use notify::Watcher as NotifyWatcher;
+
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+use notify::PollWatcher as RecommendedWatcher;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use notify::RecommendedWatcher;
+
 use tokio::stream::Stream;
 use tokio::sync::mpsc;
 
@@ -34,7 +40,7 @@ fn notify_to_io_error(e: notify::Error) -> io::Error {
 ///
 /// [`notify::Watcher`]: https://docs.rs/notify/5.0.0-pre.2/notify/trait.Watcher.html
 pub struct MuxedEvents {
-    inner: notify::RecommendedWatcher,
+    inner: RecommendedWatcher,
     watched_directories: HashMap<PathBuf, usize>,
     /// Files that are successfully being watched
     watched_files: HashSet<PathBuf>,
@@ -54,22 +60,22 @@ impl Debug for MuxedEvents {
     }
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-fn new_watcher(tx: mpsc::UnboundedSender<notify::Result<notify::Event>>) -> io::Result<notify::RecommendedWatcher> {
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+fn new_watcher(tx: mpsc::UnboundedSender<notify::Result<notify::Event>>) -> io::Result<RecommendedWatcher> {
     println!("using PollingWatcher");
 
     let event_fn = std::sync::Arc::new(std::sync::Mutex::new(move |res| { let _ = tx.send(res); }));
     let delay = std::time::Duration::from_millis(100);
-    let inner = notify::RecommendedWatcher::with_delay(event_fn, delay)
+    let inner = notify::PollWatcher::with_delay(event_fn, delay)
         .map_err(notify_to_io_error)?;
 
     Ok(inner)
 }
-#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
-fn new_watcher(tx: mpsc::UnboundedSender<notify::Result<notify::Event>>) -> io::Result<notify::RecommendedWatcher> {
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+fn new_watcher(tx: mpsc::UnboundedSender<notify::Result<notify::Event>>) -> io::Result<RecommendedWatcher> {
     println!("using RecommendedWatcher");
 
-    let inner: notify::RecommendedWatcher = NotifyWatcher::new_immediate(move |res| {
+    let inner: RecommendedWatcher = NotifyWatcher::new_immediate(move |res| {
         // The only way `send` can fail is if the receiver is dropped,
         // and `MuxedEvents` controls both. `unwrap` is not used,
         // however, since `Drop` idiosyncrasies could otherwise result
@@ -105,13 +111,13 @@ impl MuxedEvents {
             || self.watched_directories.contains_key(&path.to_path_buf())
     }
 
-    fn watch(watcher: &mut notify::RecommendedWatcher, path: impl AsRef<Path>) -> io::Result<()> {
+    fn watch(watcher: &mut RecommendedWatcher, path: impl AsRef<Path>) -> io::Result<()> {
         watcher
             .watch(path, notify::RecursiveMode::NonRecursive)
             .map_err(notify_to_io_error)
     }
 
-    fn unwatch(watcher: &mut notify::RecommendedWatcher, path: impl AsRef<Path>) -> io::Result<()> {
+    fn unwatch(watcher: &mut RecommendedWatcher, path: impl AsRef<Path>) -> io::Result<()> {
         watcher.unwatch(path).map_err(notify_to_io_error)
     }
 
