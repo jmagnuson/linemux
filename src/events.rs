@@ -426,7 +426,7 @@ mod tests {
             dbg!(&res);
             if let Some(Ok(notify::Event { kind: notify::EventKind::Modify(_), .. })) = res {
                 count+= 1;
-                if count > 2 {
+                if count == 2 {
                     break;
                 }
             }
