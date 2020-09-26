@@ -423,7 +423,7 @@ mod tests {
         let mut count = 0;
         loop {
             let res = timeout(Duration::from_millis(100), watcher.next()).await.unwrap();
-            //dbg!(&res);
+            dbg!(&res);
             if let Some(Ok(notify::Event { kind: notify::EventKind::Modify(_), .. })) = res {
                 count+= 1;
                 if count > 2 {
