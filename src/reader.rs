@@ -818,4 +818,76 @@ mod tests {
             assert_eq!(line1.line(), "bar");
         }
     }
+
+    #[tokio::test]
+    async fn test_log_rotate() {
+        use pipe_logger_lib::{PipeLoggerBuilder, RotateMethod};
+        use std::sync::{Arc, Mutex};
+        use tokio::task;
+        use tokio::time::timeout;
+
+        let tmp_dir = tempdir().expect("Failed to create tempdir");
+        let tmp_dir_path = tmp_dir.path();
+        let file_path = tmp_dir_path.join("logfile.txt");
+
+        let logger = {
+            let mut builder = PipeLoggerBuilder::new(&file_path);
+            builder.set_rotate(Some(RotateMethod::FileSize(10)));
+            Arc::new(Mutex::new(builder.build().unwrap()))
+        };
+
+        let mut lines = MuxedLines::new().unwrap();
+        lines.add_file(&file_path).await.unwrap();
+
+
+        {
+        let logger = logger.clone();
+        let write_task_handle = task::spawn_blocking(move || {
+            dbg!(logger.lock().unwrap().write("abcdefghi\n").unwrap());
+            std::thread::sleep(Duration::from_millis(50));
+            dbg!(logger.lock().unwrap().write("abcdefghi\n").unwrap());
+        });
+
+        let mut count = 0;
+        loop {
+            let res = timeout(Duration::from_millis(200), lines.next()).await.unwrap();
+            dbg!(&res);
+            if let Some(Ok(Line { line, .. } )) = res {
+                assert_eq!(line.as_str(), "abcdefghi");
+                count+= 1;
+                if count == 2 {
+                    break;
+                }
+            }
+        }
+
+        timeout(Duration::from_millis(300), write_task_handle).await.unwrap().unwrap();
+        }
+
+
+        {
+        let logger = logger.clone();
+        let write_task_handle = task::spawn_blocking(move || {
+            dbg!(logger.lock().unwrap().write("abcdefghi\n").unwrap());
+            std::thread::sleep(Duration::from_millis(50));
+            dbg!(logger.lock().unwrap().write("abcdefghi\n").unwrap());
+        });
+
+        let mut count = 0;
+        loop {
+            let res = timeout(Duration::from_millis(200), lines.next()).await.unwrap();
+            dbg!(&res);
+            if let Some(Ok(Line { line, .. } )) = res {
+                assert_eq!(line.as_str(), "abcdefghi");
+                count+= 1;
+                if count == 2 {
+                    break;
+                }
+            }
+        }
+
+        timeout(Duration::from_millis(300), write_task_handle).await.unwrap().unwrap();
+        }
+
+    }
 }
