@@ -399,25 +399,26 @@ mod tests {
     #[tokio::test]
     async fn test_log_rotate() {
         use pipe_logger_lib::{PipeLoggerBuilder, RotateMethod};
+        use std::sync::{Arc, Mutex};
         use tokio::task;
 
         let tmp_dir = tempdir().expect("Failed to create tempdir");
         let tmp_dir_path = tmp_dir.path();
         let file_path = tmp_dir_path.join("logfile.txt");
 
-        let mut logger = {
+        let logger = {
             let mut builder = PipeLoggerBuilder::new(&file_path);
             builder.set_rotate(Some(RotateMethod::FileSize(10)));
-            builder.build().unwrap()
+            Arc::new(Mutex::new(builder.build().unwrap()))
         };
 
         let mut watcher = MuxedEvents::new().unwrap();
         watcher.add_file(&file_path).unwrap();
 
         let write_task_handle = task::spawn_blocking(move || {
-            logger.write("abcdefghi\n").unwrap();
+            logger.lock().unwrap().write("abcdefghi\n").unwrap();
             std::thread::sleep(Duration::from_millis(100));
-            logger.write("abcdefghi\n").unwrap();
+            logger.lock().unwrap().write("abcdefghi\n").unwrap();
         });
 
         let mut count = 0;
@@ -432,6 +433,6 @@ mod tests {
             }
         }
 
-        timeout(Duration::from_millis(100), write_task_handle).await.unwrap().unwrap();
+        timeout(Duration::from_millis(300), write_task_handle).await.unwrap().unwrap();
     }
 }
