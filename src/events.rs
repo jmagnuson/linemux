@@ -396,21 +396,42 @@ mod tests {
         assert_eq!(io_error.kind(), io::ErrorKind::Other);
     }
 
-    #[test]
-    fn test_log_rotate() {
+    #[tokio::test]
+    async fn test_log_rotate() {
         use pipe_logger_lib::{PipeLoggerBuilder, RotateMethod};
+        use tokio::task;
 
         let tmp_dir = tempdir().expect("Failed to create tempdir");
         let tmp_dir_path = tmp_dir.path();
+        let file_path = tmp_dir_path.join("logfile.txt");
 
-        let file_path = tmp_dir_path.join("missing_file1.txt");
+        let mut logger = {
+            let mut builder = PipeLoggerBuilder::new(&file_path);
+            builder.set_rotate(Some(RotateMethod::FileSize(10)));
+            builder.build().unwrap()
+        };
 
-        let mut builder = PipeLoggerBuilder::new(&file_path);
+        let mut watcher = MuxedEvents::new().unwrap();
+        watcher.add_file(&file_path).unwrap();
 
-        builder.set_rotate(Some(RotateMethod::FileSize(10)));
+        let write_task_handle = task::spawn_blocking(move || {
+            logger.write("abcdefghi\n").unwrap();
+            std::thread::sleep(Duration::from_millis(100));
+            logger.write("abcdefghi\n").unwrap();
+        });
 
-        let mut logger = builder.build().unwrap();
+        let mut count = 0;
+        loop {
+            let res = timeout(Duration::from_millis(100), watcher.next()).await.unwrap();
+            //dbg!(&res);
+            if let Some(Ok(notify::Event { kind: notify::EventKind::Modify(_), .. })) = res {
+                count+= 1;
+                if count > 2 {
+                    break;
+                }
+            }
+        }
 
-        logger.write("abcdefghi\n").unwrap();
+        timeout(Duration::from_millis(100), write_task_handle).await.unwrap().unwrap();
     }
 }
