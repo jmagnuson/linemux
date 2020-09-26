@@ -486,7 +486,7 @@ impl Stream for MuxedLines {
 mod tests {
     use super::*;
     use std::time::Duration;
-    use tempdir::TempDir;
+    use tempfile::tempdir;
     use tokio::fs::File;
     use tokio::io::AsyncWriteExt;
     use tokio::stream::StreamExt;
@@ -530,7 +530,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_inner_fns() {
-        let dir = TempDir::new("some-inner-filedir").unwrap();
+        let dir = tempdir().unwrap();
         let source_path = dir.path().join("foo.txt");
 
         let mut inner = Inner::new();
@@ -581,7 +581,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_directory() {
-        let tmp_dir = TempDir::new("justa-filedir").expect("Failed to create tempdir");
+        let tmp_dir = tempdir().expect("Failed to create tempdir");
         let tmp_dir_path = tmp_dir.path();
 
         let mut lines = MuxedLines::new().unwrap();
@@ -590,7 +590,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_bad_filename() {
-        let tmp_dir = TempDir::new("justa-filedir").expect("Failed to create tempdir");
+        let tmp_dir = tempdir().expect("Failed to create tempdir");
         let tmp_dir_path = tmp_dir.path();
 
         let mut lines = MuxedLines::new().unwrap();
@@ -607,7 +607,7 @@ mod tests {
     async fn test_add_missing_files() {
         use tokio::time::timeout;
 
-        let tmp_dir = TempDir::new("missing-filedir").expect("Failed to create tempdir");
+        let tmp_dir = tempdir().expect("Failed to create tempdir");
         let tmp_dir_path = tmp_dir.path();
 
         let file_path1 = tmp_dir_path.join("missing_file1.txt");
@@ -695,7 +695,7 @@ mod tests {
     async fn test_file_rollover() {
         use tokio::time::timeout;
 
-        let tmp_dir = TempDir::new("missing-filedir").expect("Failed to create tempdir");
+        let tmp_dir = tempdir().expect("Failed to create tempdir");
         let tmp_dir_path = tmp_dir.path();
 
         let file_path1 = tmp_dir_path.join("missing_file1.txt");
@@ -772,7 +772,7 @@ mod tests {
         use tokio::stream::Stream;
         use tokio::time::timeout;
 
-        let tmp_dir = TempDir::new("missing-filedir").expect("Failed to create tempdir");
+        let tmp_dir = tempdir().expect("Failed to create tempdir");
         let tmp_dir_path = tmp_dir.path();
 
         let file_path1 = tmp_dir_path.join("missing_file1.txt");
