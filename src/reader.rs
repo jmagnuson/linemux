@@ -490,6 +490,41 @@ mod tests {
     use tokio::fs::File;
     use tokio::io::AsyncWriteExt;
     use tokio::stream::StreamExt;
+    use tokio::time::delay_for;
+
+    async fn flush_events(mut lines: &mut MuxedLines, duration: Duration) {
+        let mut timeout = delay_for(duration);
+        let mut lines = Pin::new(&mut lines);
+
+        loop {
+            let pinned_timeout = Pin::new(&mut timeout);
+            tokio::select!{
+                _ = pinned_timeout => {
+                    return;
+                }
+                _line = lines.next() => {
+                    println!("got line: {:?}", _line);
+                }
+            }
+        }
+    }
+
+    async fn get_line(mut lines: &mut MuxedLines, duration: Duration) -> Option<Line> {
+        let mut timeout = delay_for(duration);
+        let mut lines = Pin::new(&mut lines);
+
+        loop {
+            let pinned_timeout = Pin::new(&mut timeout);
+            tokio::select!{
+                _ = pinned_timeout => {
+                    return None;
+                }
+                line = lines.next() => {
+                    return line.and_then(|res| res.ok())
+                }
+            }
+        }
+    }
 
     #[tokio::test]
     async fn test_is_send() {
@@ -839,55 +874,25 @@ mod tests {
         let mut lines = MuxedLines::new().unwrap();
         lines.add_file(&file_path).await.unwrap();
 
-
-        {
-        let logger = logger.clone();
-        let write_task_handle = task::spawn_blocking(move || {
-            dbg!(logger.lock().unwrap().write("abcdefghi\n").unwrap());
-            std::thread::sleep(Duration::from_millis(50));
-            dbg!(logger.lock().unwrap().write("abcdefghi\n").unwrap());
+        let (line_tx, mut line_rx) = tokio::sync::mpsc::unbounded_channel();
+        task::spawn(async move {
+            loop {
+                let line_res = lines.next().await;
+                line_tx.send(line_res);
+            }
         });
 
-        let mut count = 0;
-        loop {
-            let res = timeout(Duration::from_millis(200), lines.next()).await.unwrap();
-            dbg!(&res);
-            if let Some(Ok(Line { line, .. } )) = res {
-                assert_eq!(line.as_str(), "abcdefghi");
-                count+= 1;
-                if count == 2 {
-                    break;
-                }
-            }
-        }
+        //flush_events(&mut lines, Duration::from_millis(200)).await;
 
-        timeout(Duration::from_millis(300), write_task_handle).await.unwrap().unwrap();
-        }
+        dbg!(logger.lock().unwrap().write("abcdefghi\n").unwrap());
+        std::thread::sleep(Duration::from_millis(50));
+        //dbg!(logger.lock().unwrap().write("abcdefghi\n").unwrap());
+        //std::thread::sleep(Duration::from_millis(50));
+        //let line = timeout(Duration::from_millis(200), lines.next()).await.unwrap().unwrap().unwrap();
+        //let line = get_line(&mut lines, Duration::from_millis(500)).await.unwrap();
+        //assert_eq!(line.line(), "abcdefghi");
 
-
-        {
-        let logger = logger.clone();
-        let write_task_handle = task::spawn_blocking(move || {
-            dbg!(logger.lock().unwrap().write("abcdefghi\n").unwrap());
-            std::thread::sleep(Duration::from_millis(50));
-            dbg!(logger.lock().unwrap().write("abcdefghi\n").unwrap());
-        });
-
-        let mut count = 0;
-        loop {
-            let res = timeout(Duration::from_millis(200), lines.next()).await.unwrap();
-            dbg!(&res);
-            if let Some(Ok(Line { line, .. } )) = res {
-                assert_eq!(line.as_str(), "abcdefghi");
-                count+= 1;
-                if count == 2 {
-                    break;
-                }
-            }
-        }
-
-        timeout(Duration::from_millis(300), write_task_handle).await.unwrap().unwrap();
-        }
-
+        assert!(line_rx.next().await.is_some());
+        assert!(line_rx.next().await.is_some());
     }
 }
