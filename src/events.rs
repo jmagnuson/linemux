@@ -395,4 +395,22 @@ mod tests {
         let io_error = notify_to_io_error(notify_custom_error);
         assert_eq!(io_error.kind(), io::ErrorKind::Other);
     }
+
+    #[test]
+    fn test_log_rotate() {
+        use pipe_logger_lib::{PipeLoggerBuilder, RotateMethod};
+
+        let tmp_dir = tempdir().expect("Failed to create tempdir");
+        let tmp_dir_path = tmp_dir.path();
+
+        let file_path = tmp_dir_path.join("missing_file1.txt");
+
+        let mut builder = PipeLoggerBuilder::new(&file_path);
+
+        builder.set_rotate(Some(RotateMethod::FileSize(10)));
+
+        let mut logger = builder.build().unwrap();
+
+        logger.write("abcdefghi\n").unwrap();
+    }
 }
