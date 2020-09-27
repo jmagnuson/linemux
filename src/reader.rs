@@ -492,23 +492,6 @@ mod tests {
     use tokio::stream::StreamExt;
     use tokio::time::delay_for;
 
-    async fn flush_events(mut lines: &mut MuxedLines, duration: Duration) {
-        let mut timeout = delay_for(duration);
-        let mut lines = Pin::new(&mut lines);
-
-        loop {
-            let pinned_timeout = Pin::new(&mut timeout);
-            tokio::select!{
-                _ = pinned_timeout => {
-                    return;
-                }
-                _line = lines.next() => {
-                    println!("got line: {:?}", _line);
-                }
-            }
-        }
-    }
-
     async fn get_line(mut lines: impl Stream<Item=std::io::Result<Line>> + Unpin, duration: Duration) -> Option<Line> {
         let mut timeout = delay_for(duration);
         let mut lines = Pin::new(&mut lines);
@@ -859,7 +842,6 @@ mod tests {
         use pipe_logger_lib::{PipeLoggerBuilder, RotateMethod};
         use std::sync::{Arc, Mutex};
         use tokio::task;
-        use tokio::time::timeout;
 
         let tmp_dir = tempdir().expect("Failed to create tempdir");
         let tmp_dir_path = tmp_dir.path();
@@ -890,15 +872,14 @@ mod tests {
         //flush_events(&mut lines, Duration::from_millis(200)).await;
 
         dbg!(logger.lock().unwrap().write("abcdefghi\n").unwrap());
-        std::thread::sleep(Duration::from_millis(50));
+        std::thread::sleep(Duration::from_millis(500));
+        dbg!(logger.lock().unwrap().write("abcdefghi\n").unwrap());
+        std::thread::sleep(Duration::from_millis(500));
         //dbg!(logger.lock().unwrap().write("abcdefghi\n").unwrap());
         //std::thread::sleep(Duration::from_millis(50));
-        //let line = timeout(Duration::from_millis(200), lines.next()).await.unwrap().unwrap().unwrap();
-        //let line = get_line(&mut lines, Duration::from_millis(500)).await.unwrap();
-        //assert_eq!(line.line(), "abcdefghi");
 
-        assert!(get_line(&mut line_rx, Duration::from_millis(200)).await.is_some());
-        //assert!(line_rx.next().await.is_some());
+        assert!(get_line(&mut line_rx, Duration::from_millis(20)).await.is_some());
+        //assert!(get_line(&mut line_rx, Duration::from_millis(20)).await.is_some());
         //assert!(line_rx.next().await.is_some());
     }
 }
