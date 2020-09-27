@@ -509,7 +509,7 @@ mod tests {
         }
     }
 
-    async fn get_line(mut lines: &mut MuxedLines, duration: Duration) -> Option<Line> {
+    async fn get_line(mut lines: impl Stream<Item=std::io::Result<Line>> + Unpin, duration: Duration) -> Option<Line> {
         let mut timeout = delay_for(duration);
         let mut lines = Pin::new(&mut lines);
 
@@ -867,7 +867,7 @@ mod tests {
 
         let logger = {
             let mut builder = PipeLoggerBuilder::new(&file_path);
-            builder.set_rotate(Some(RotateMethod::FileSize(10)));
+            builder.set_rotate(Some(RotateMethod::FileSize(20)));
             Arc::new(Mutex::new(builder.build().unwrap()))
         };
 
@@ -877,8 +877,13 @@ mod tests {
         let (line_tx, mut line_rx) = tokio::sync::mpsc::unbounded_channel();
         task::spawn(async move {
             loop {
-                let line_res = lines.next().await;
-                line_tx.send(line_res);
+                if let Some(line_res) = lines.next().await {
+                    println!("sending {:?}", line_res);
+                    line_tx.send(line_res).unwrap();
+                } else {
+                    println!("BREAKING");
+                    break;
+                }
             }
         });
 
@@ -892,7 +897,8 @@ mod tests {
         //let line = get_line(&mut lines, Duration::from_millis(500)).await.unwrap();
         //assert_eq!(line.line(), "abcdefghi");
 
-        assert!(line_rx.next().await.is_some());
-        assert!(line_rx.next().await.is_some());
+        assert!(get_line(&mut line_rx, Duration::from_millis(200)).await.is_some());
+        //assert!(line_rx.next().await.is_some());
+        //assert!(line_rx.next().await.is_some());
     }
 }
