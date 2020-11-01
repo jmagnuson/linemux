@@ -189,7 +189,13 @@ impl MuxedEvents {
 
         // TODO: properly handle any errors encountered adding/removing stuff
         paths.retain(|path| {
-            let path_exists = path.exists();
+            let path_exists =
+                if let notify::EventKind::Remove(notify::event::RemoveKind::File) = &event.kind {
+                    // Fixes a potential race when detecting file rotations.
+                    false
+                } else {
+                    path.exists()
+                };
 
             // TODO: could be more intelligent/performant by checking event types
             if path_exists && self.pending_watched_files.contains(path) {
