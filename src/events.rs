@@ -289,14 +289,14 @@ mod tests {
     use super::MuxedEvents;
     use crate::events::notify_to_io_error;
     use std::time::Duration;
-    use tempdir::TempDir;
+    use tempfile::tempdir;
     use tokio::fs::File;
     use tokio::stream::StreamExt;
     use tokio::time::timeout;
 
     #[test]
     fn test_add_directory() {
-        let tmp_dir = TempDir::new("justa-filedir").expect("Failed to create tempdir");
+        let tmp_dir = tempdir().unwrap();
         let tmp_dir_path = tmp_dir.path();
 
         let mut watcher = MuxedEvents::new().unwrap();
@@ -305,7 +305,7 @@ mod tests {
 
     #[test]
     fn test_add_bad_filename() {
-        let tmp_dir = TempDir::new("justa-filedir").expect("Failed to create tempdir");
+        let tmp_dir = tempdir().unwrap();
         let tmp_dir_path = tmp_dir.path();
 
         let mut watcher = MuxedEvents::new().unwrap();
@@ -322,7 +322,7 @@ mod tests {
     async fn test_add_missing_files() {
         use tokio::io::AsyncWriteExt;
 
-        let tmp_dir = TempDir::new("missing-filedir").expect("Failed to create tempdir");
+        let tmp_dir = tempdir().unwrap();
         let tmp_dir_path = tmp_dir.path();
         let pathclone = absolutify(tmp_dir_path, false).unwrap();
 
