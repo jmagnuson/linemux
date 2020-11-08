@@ -1,6 +1,6 @@
 [package]
 name = "linemux"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Jon Magnuson <jon.magnuson@gmail.com>"]
 edition = "2018"
 description = "A library providing asynchronous, multiplexed tailing for (namely log) files."
