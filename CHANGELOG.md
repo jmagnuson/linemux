@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [Unreleased]
 
+## [0.1.2] - 2020-11-08
+
 ### Fixed
 - Fix issue where `MuxedLines::add_file` can panic if called while in transient
   `StreamState`.
@@ -23,6 +25,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 ### Added
 - Initial library features
 
-[Unreleased]: https://github.com/jmagnuson/linemux/compare/0.1.1...master
+[Unreleased]: https://github.com/jmagnuson/linemux/compare/0.1.2...master
+[0.1.2]: https://github.com/jmagnuson/linemux/compare/0.1.1...0.1.2
 [0.1.1]: https://github.com/jmagnuson/linemux/compare/0.1.0...0.1.1
 [0.1.0]: https://github.com/jmagnuson/linemux/compare/8a30f75...0.1.0
