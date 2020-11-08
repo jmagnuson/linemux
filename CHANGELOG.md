@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 ### Fixed
 - Fix issue where `MuxedLines::add_file` can panic if called while in transient
   `StreamState`.
+- Force unwatch on `Remove(File)` event to fix potential race with underlying
+  filesystem state.
 
 ## [0.1.1] - 2020-04-16
 
