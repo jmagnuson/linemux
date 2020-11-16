@@ -127,6 +127,10 @@ impl Inner {
     pub fn insert_reader_position(&mut self, path: PathBuf, pos: u64) -> Option<u64> {
         self.reader_positions.insert(path, pos)
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.readers.is_empty() && self.pending_readers.is_empty()
+    }
 }
 
 pin_project! {
@@ -168,6 +172,10 @@ impl MuxedLines {
         self.inner.reader_exists(path)
     }
 
+    fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
     /// Adds a given file to the lines watch, allowing for files which do not
     /// yet exist.
     ///
@@ -204,6 +212,98 @@ impl MuxedLines {
 
         Ok(source)
     }
+
+    #[doc(hidden)]
+    pub fn poll_next_line(
+        self: Pin<&mut Self>,
+        cx: &mut task::Context<'_>,
+    ) -> task::Poll<io::Result<Option<Line>>> {
+        if self.is_empty() && !self.stream_state.is_transient() {
+            return task::Poll::Ready(Ok(None));
+        }
+
+        let this = self.project();
+
+        let mut events = this.events;
+        let mut inner = this.inner;
+        let stream_state = this.stream_state;
+
+        loop {
+            let (new_state, maybe_line) = match stream_state {
+                StreamState::Events => {
+                    let event = unwrap_res_or_continue!(unwrap_or_continue!(ready!(events
+                        .as_mut()
+                        .poll_next(cx))));
+                    (
+                        StreamState::HandleEvent(event, HandleEventState::new()),
+                        None,
+                    )
+                }
+                StreamState::HandleEvent(ref mut event, ref mut state) => {
+                    let res = ready!(poll_handle_event(&mut inner, event, state, cx));
+                    match res {
+                        Ok(()) => {
+                            if event.paths.is_empty() {
+                                (StreamState::Events, None)
+                            } else {
+                                let paths = std::mem::replace(&mut event.paths, Vec::new());
+                                (StreamState::ReadLines(paths, 0), None)
+                            }
+                        }
+                        _ => (StreamState::Events, None),
+                    }
+                }
+                StreamState::ReadLines(paths, ref mut path_index) => {
+                    if let Some(path) = paths.get(*path_index) {
+                        if let Some(reader) = inner.readers.get_mut(path) {
+                            let res = ready!(Pin::new(reader).poll_next(cx));
+
+                            match res {
+                                Some(Ok(line)) => {
+                                    let line = Line {
+                                        source: path.clone(),
+                                        line,
+                                    };
+                                    return task::Poll::Ready(Some(Ok(line)).transpose());
+                                }
+                                Some(Err(e)) => (StreamState::Events, Some(Err(e))),
+                                None => {
+                                    // Increase index whether line or not
+                                    *path_index += 1;
+                                    continue;
+                                }
+                            }
+                        } else {
+                            // Same state, fewer paths
+                            *path_index += 1;
+
+                            // TODO: this should work but is a bit ambiguous
+                            continue;
+                        }
+                    } else {
+                        (StreamState::Events, None)
+                    }
+                }
+            };
+
+            stream_state.replace(new_state);
+
+            if let Some(line) = maybe_line {
+                return task::Poll::Ready(Some(line).transpose());
+            }
+        }
+    }
+
+    /// Returns the next line in the stream.
+    ///
+    /// Waits for the next line from the set of watched files, otherwise
+    /// returns `Ok(None)` if no files were ever added, or `Err` for a given
+    /// error.
+    pub async fn next_line(&mut self) -> io::Result<Option<Line>> {
+        use futures_util::future::poll_fn;
+
+        poll_fn(|cx| Pin::new(&mut *self).poll_next_line(cx)).await
+    }
 }
 
 enum StreamState {
@@ -219,6 +319,10 @@ impl StreamState {
         std::mem::swap(self, &mut old_state);
 
         old_state
+    }
+
+    pub fn is_transient(&self) -> bool {
+        !matches!(self, StreamState::Events)
     }
 }
 
@@ -409,76 +513,7 @@ impl Stream for MuxedLines {
         self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
     ) -> task::Poll<Option<Self::Item>> {
-        let this = self.project();
-
-        let mut events = this.events;
-        let mut inner = this.inner;
-        let stream_state = this.stream_state;
-
-        loop {
-            let (new_state, maybe_line) = match stream_state {
-                StreamState::Events => {
-                    let event = unwrap_res_or_continue!(unwrap_or_continue!(ready!(events
-                        .as_mut()
-                        .poll_next(cx))));
-                    (
-                        StreamState::HandleEvent(event, HandleEventState::new()),
-                        None,
-                    )
-                }
-                StreamState::HandleEvent(ref mut event, ref mut state) => {
-                    let res = ready!(poll_handle_event(&mut inner, event, state, cx));
-                    match res {
-                        Ok(()) => {
-                            if event.paths.is_empty() {
-                                (StreamState::Events, None)
-                            } else {
-                                let paths = std::mem::replace(&mut event.paths, Vec::new());
-                                (StreamState::ReadLines(paths, 0), None)
-                            }
-                        }
-                        _ => (StreamState::Events, None),
-                    }
-                }
-                StreamState::ReadLines(paths, ref mut path_index) => {
-                    if let Some(path) = paths.get(*path_index) {
-                        if let Some(reader) = inner.readers.get_mut(path) {
-                            let res = ready!(Pin::new(reader).poll_next(cx));
-
-                            match res {
-                                Some(Ok(line)) => {
-                                    let line = Line {
-                                        source: path.clone(),
-                                        line,
-                                    };
-                                    return task::Poll::Ready(Some(Ok(line)));
-                                }
-                                Some(Err(e)) => (StreamState::Events, Some(Err(e))),
-                                None => {
-                                    // Increase index whether line or not
-                                    *path_index += 1;
-                                    continue;
-                                }
-                            }
-                        } else {
-                            // Same state, fewer paths
-                            *path_index += 1;
-
-                            // TODO: this should work but is a bit ambiguous
-                            continue;
-                        }
-                    } else {
-                        (StreamState::Events, None)
-                    }
-                }
-            };
-
-            stream_state.replace(new_state);
-
-            if let Some(line) = maybe_line {
-                return task::Poll::Ready(Some(line));
-            }
-        }
+        self.poll_next_line(cx).map(Result::transpose)
     }
 }
 
@@ -675,7 +710,7 @@ mod tests {
             assert_eq!(line2.line(), "bar");
         }
         {
-            let line2 = timeout(Duration::from_millis(100), lines.next())
+            let line2 = timeout(Duration::from_millis(100), lines.next_line())
                 .await
                 .unwrap()
                 .unwrap()
@@ -702,6 +737,7 @@ mod tests {
 
         let mut lines = MuxedLines::new().unwrap();
         lines.add_file(&file_path1).await.unwrap();
+        assert!(!lines.is_empty());
 
         let mut _file1 = File::create(&file_path1)
             .await
@@ -710,7 +746,7 @@ mod tests {
         _file1.sync_all().await.unwrap();
         tokio::time::delay_for(Duration::from_millis(100)).await;
         {
-            let line1 = timeout(Duration::from_millis(100), lines.next())
+            let line1 = timeout(Duration::from_millis(100), lines.next_line())
                 .await
                 .unwrap()
                 .unwrap()
@@ -817,5 +853,14 @@ mod tests {
                 .contains("missing_file1.txt"));
             assert_eq!(line1.line(), "bar");
         }
+    }
+
+    #[tokio::test]
+    async fn test_empty_next_line() {
+        let mut watcher = MuxedLines::new().unwrap();
+
+        // No files added, expect None
+        assert!(watcher.next_line().await.unwrap().is_none());
+        assert!(watcher.next().await.is_none());
     }
 }
