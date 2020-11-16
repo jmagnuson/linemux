@@ -7,7 +7,6 @@
 //! be written to them in order to generate lines.
 
 use linemux::MuxedLines;
-use tokio::stream::StreamExt;
 
 #[tokio::main]
 pub async fn main() -> std::io::Result<()> {
@@ -19,7 +18,7 @@ pub async fn main() -> std::io::Result<()> {
         lines.add_file(&f).await?;
     }
 
-    while let Some(Ok(line)) = lines.next().await {
+    while let Ok(Some(line)) = lines.next_line().await {
         println!("({}) {}", line.source().display(), line.line());
     }
 
