@@ -24,7 +24,6 @@ linemux = "0.1"
 
 ```rust,no_run
 use linemux::MuxedLines;
-use tokio::stream::StreamExt;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -36,7 +35,7 @@ async fn main() -> std::io::Result<()> {
 
     // Wait for `Line` event, which contains the line captured for a given
     // source path.
-    while let Some(Ok(line)) = lines.next().await {
+    while let Ok(Some(line)) = lines.next_line().await {
         println!("source: {}, line: {}", line.source().display(), line.line());
     }
     Ok(())

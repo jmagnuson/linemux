@@ -7,7 +7,6 @@
 //! will eventually be applied to them in order to generate events.
 
 use linemux::MuxedEvents;
-use tokio::stream::StreamExt;
 
 #[tokio::main]
 pub async fn main() -> std::io::Result<()> {
@@ -19,7 +18,7 @@ pub async fn main() -> std::io::Result<()> {
         events.add_file(&f)?;
     }
 
-    while let Some(Ok(event)) = events.next().await {
+    while let Ok(Some(event)) = events.next_event().await {
         println!("event: {:?}", event)
     }
 

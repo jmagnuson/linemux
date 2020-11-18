@@ -142,6 +142,14 @@ impl MuxedEvents {
         Ok(())
     }
 
+    /*fn len(&self) -> usize {
+        self.watched_files.len() + self.pending_watched_files.len()
+    }*/
+
+    fn is_empty(&self) -> bool {
+        self.watched_files.is_empty() && self.pending_watched_files.is_empty()
+    }
+
     /// Adds a given file to the event watch, allowing for files which do not
     /// yet exist.
     ///
@@ -216,7 +224,7 @@ impl MuxedEvents {
         let _ = mem::replace(&mut event.paths, paths);
     }
 
-    fn poll_next_event(
+    fn __poll_next_event(
         event_stream: Pin<&mut EventStream>,
         cx: &mut task::Context<'_>,
     ) -> task::Poll<Option<io::Result<notify::Event>>> {
@@ -224,22 +232,48 @@ impl MuxedEvents {
             ready!(event_stream.poll_next(cx)).map(|res| res.map_err(notify_to_io_error)),
         )
     }
+
+    #[doc(hidden)]
+    pub fn poll_next_event(
+        mut self: Pin<&mut Self>,
+        cx: &mut task::Context<'_>,
+    ) -> task::Poll<io::Result<Option<notify::Event>>> {
+        if self.is_empty() {
+            return task::Poll::Ready(Ok(None));
+        }
+
+        let mut res = ready!(Self::__poll_next_event(
+            Pin::new(&mut self.event_stream),
+            cx
+        ));
+
+        if let Some(Ok(ref mut event)) = res {
+            self.handle_event(event);
+        }
+
+        task::Poll::Ready(res.transpose())
+    }
+
+    /// Returns the next event in the stream.
+    ///
+    /// Waits for the next event from the set of watched files, otherwise
+    /// returns `Ok(None)` if no files were ever added, or `Err` for a given
+    /// error.
+    pub async fn next_event(&mut self) -> io::Result<Option<notify::Event>> {
+        use futures_util::future::poll_fn;
+
+        poll_fn(|cx| Pin::new(&mut *self).poll_next_event(cx)).await
+    }
 }
 
 impl Stream for MuxedEvents {
     type Item = io::Result<notify::Event>;
 
     fn poll_next(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
     ) -> task::Poll<Option<Self::Item>> {
-        let mut res = ready!(Self::poll_next_event(Pin::new(&mut self.event_stream), cx));
-
-        if let Some(Ok(ref mut event)) = res {
-            self.handle_event(event);
-        }
-
-        task::Poll::Ready(res)
+        self.poll_next_event(cx).map(Result::transpose)
     }
 }
 
@@ -364,7 +398,7 @@ mod tests {
 
         let event1 = watcher.next().await.unwrap().unwrap();
         assert_eq!(event1.kind, expected_event,);
-        let event2 = watcher.next().await.unwrap().unwrap();
+        let event2 = watcher.next_event().await.unwrap().unwrap();
         assert_eq!(event2.kind, expected_event,);
 
         // Now the files should be watched properly
@@ -387,6 +421,15 @@ mod tests {
         assert!(watcher.watched_directories.contains_key(&pathclone));
 
         drop(watcher);
+    }
+
+    #[tokio::test]
+    async fn test_empty_next_event() {
+        let mut watcher = MuxedEvents::new().unwrap();
+
+        // No files added, expect None
+        assert!(watcher.next_event().await.unwrap().is_none());
+        assert!(watcher.next().await.is_none());
     }
 
     #[test]

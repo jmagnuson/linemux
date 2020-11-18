@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [Unreleased]
 
+### Added
+- Add `MuxedEvents::next_event`.
+- Add `MuxedLines::next_line`.
+
 ## [0.1.2] - 2020-11-08
 
 ### Fixed
