@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 ### Added
 - Add `MuxedEvents::next_event`.
 - Add `MuxedLines::next_line`.
+- Establish 1.40 MSRV.
 
 ### Fixed
 - Force unwatch on `Rename(Name)` event.
