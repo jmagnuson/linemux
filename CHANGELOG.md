@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [Unreleased]
 
+## [0.1.3] - 2020-11-22
+
 ### Added
 - Add `MuxedEvents::next_event`.
 - Add `MuxedLines::next_line`.
@@ -33,7 +35,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 ### Added
 - Initial library features
 
-[Unreleased]: https://github.com/jmagnuson/linemux/compare/0.1.2...master
+[Unreleased]: https://github.com/jmagnuson/linemux/compare/0.1.3...master
+[0.1.3]: https://github.com/jmagnuson/linemux/compare/0.1.2...0.1.3
 [0.1.2]: https://github.com/jmagnuson/linemux/compare/0.1.1...0.1.2
 [0.1.1]: https://github.com/jmagnuson/linemux/compare/0.1.0...0.1.1
 [0.1.0]: https://github.com/jmagnuson/linemux/compare/8a30f75...0.1.0
