@@ -50,6 +50,10 @@ performance reasons and to simplify the pending-watch complexity (such as
 limiting recursion and fs event spam). However, this may change if a need
 presents itself.
 
+## Minimum Supported Rust Version (MSRV)
+
+This crate is guaranteed to compile on stable Rust 1.40 and up.
+
 ## License
 
 Licensed under either of
