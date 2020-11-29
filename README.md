@@ -1,7 +1,7 @@
 
 # linemux
 
-[![Build Status](https://travis-ci.com/jmagnuson/linemux.svg?branch=master)](https://travis-ci.com/jmagnuson/linemux)
+![Build Status](https://img.shields.io/github/workflow/status/jmagnuson/linemux/Test/master)
 [![Crate](https://img.shields.io/crates/v/linemux.svg)](https://crates.io/crates/linemux)
 [![API](https://docs.rs/linemux/badge.svg)](https://docs.rs/linemux)
 [![Coverage](https://codecov.io/gh/jmagnuson/linemux/branch/master/graph/badge.svg)](https://codecov.io/gh/jmagnuson/linemux)
