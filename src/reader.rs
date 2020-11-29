@@ -807,7 +807,6 @@ mod tests {
         }
     }
 
-    #[cfg_attr(target_os = "windows", ignore)]
     #[tokio::test]
     async fn test_ops_in_transient_state() {
         use futures_util::future::poll_fn;
