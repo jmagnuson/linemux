@@ -810,8 +810,8 @@ mod tests {
     #[tokio::test]
     async fn test_ops_in_transient_state() {
         use futures_util::future::poll_fn;
-        use tokio_stream::Stream;
         use tokio::time::timeout;
+        use tokio_stream::Stream;
 
         let tmp_dir = tempdir().unwrap();
         let tmp_dir_path = tmp_dir.path();
