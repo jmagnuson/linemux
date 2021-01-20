@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [Unreleased]
 
+### Changed
+- Update Tokio dependency to 1.0
+- Switch to using `futures_util` for Streams
+
 ## [0.1.3] - 2020-11-22
 
 ### Added
