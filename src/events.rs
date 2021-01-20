@@ -9,9 +9,9 @@ use std::pin::Pin;
 use std::task;
 
 use futures_util::ready;
+use futures_util::stream::Stream;
 use notify::Watcher as NotifyWatcher;
 use tokio::sync::mpsc;
-use tokio_stream::Stream;
 
 type EventStream = mpsc::UnboundedReceiver<Result<notify::Event, notify::Error>>;
 
@@ -332,11 +332,11 @@ mod tests {
     use super::absolutify;
     use super::MuxedEvents;
     use crate::events::notify_to_io_error;
+    use futures_util::stream::StreamExt;
     use std::time::Duration;
     use tempfile::tempdir;
     use tokio::fs::File;
     use tokio::time::timeout;
-    use tokio_stream::StreamExt;
 
     #[test]
     fn test_add_directory() {

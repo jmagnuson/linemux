@@ -20,7 +20,6 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 notify = "5.0.0-pre.4"
 pin-project-lite = "0.1"
 tokio = { version = "1.0", features = ["fs", "io-util", "sync", "time"] }
-tokio-stream = "0.1"
 
 [dev-dependencies]
 doc-comment = "0.3"

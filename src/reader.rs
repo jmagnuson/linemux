@@ -9,10 +9,10 @@ use std::pin::Pin;
 use std::task;
 
 use futures_util::ready;
+use futures_util::stream::Stream;
 use pin_project_lite::pin_project;
 use tokio::fs::{metadata, File};
 use tokio::io::{AsyncBufReadExt, AsyncSeekExt, BufReader, Lines};
-use tokio_stream::Stream;
 
 type LineReader = Lines<BufReader<File>>;
 
@@ -525,11 +525,11 @@ impl Stream for MuxedLines {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::stream::StreamExt;
     use std::time::Duration;
     use tempfile::tempdir;
     use tokio::fs::File;
     use tokio::io::AsyncWriteExt;
-    use tokio_stream::StreamExt;
 
     #[tokio::test]
     async fn test_is_send() {
@@ -810,8 +810,8 @@ mod tests {
     #[tokio::test]
     async fn test_ops_in_transient_state() {
         use futures_util::future::poll_fn;
+        use futures_util::stream::Stream;
         use tokio::time::timeout;
-        use tokio_stream::Stream;
 
         let tmp_dir = tempdir().unwrap();
         let tmp_dir_path = tmp_dir.path();
