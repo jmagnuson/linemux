@@ -9,10 +9,10 @@ use std::pin::Pin;
 use std::task;
 
 use futures_util::ready;
+use futures_util::stream::Stream;
 use pin_project_lite::pin_project;
 use tokio::fs::{metadata, File};
-use tokio::io::{AsyncBufReadExt, BufReader, Lines};
-use tokio::stream::Stream;
+use tokio::io::{AsyncBufReadExt, AsyncSeekExt, BufReader, Lines};
 
 type LineReader = Lines<BufReader<File>>;
 
@@ -256,18 +256,18 @@ impl MuxedLines {
                 StreamState::ReadLines(paths, ref mut path_index) => {
                     if let Some(path) = paths.get(*path_index) {
                         if let Some(reader) = inner.readers.get_mut(path) {
-                            let res = ready!(Pin::new(reader).poll_next(cx));
+                            let res = ready!(Pin::new(reader).poll_next_line(cx));
 
                             match res {
-                                Some(Ok(line)) => {
+                                Ok(Some(line)) => {
                                     let line = Line {
                                         source: path.clone(),
                                         line,
                                     };
                                     return task::Poll::Ready(Some(Ok(line)).transpose());
                                 }
-                                Some(Err(e)) => (StreamState::Events, Some(Err(e))),
-                                None => {
+                                Err(e) => (StreamState::Events, Some(Err(e))),
+                                Ok(None) => {
                                     // Increase index whether line or not
                                     *path_index += 1;
                                     continue;
@@ -525,11 +525,11 @@ impl Stream for MuxedLines {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::stream::StreamExt;
     use std::time::Duration;
     use tempfile::tempdir;
     use tokio::fs::File;
     use tokio::io::AsyncWriteExt;
-    use tokio::stream::StreamExt;
 
     #[tokio::test]
     async fn test_is_send() {
@@ -683,7 +683,7 @@ mod tests {
         _file1.sync_all().await.unwrap();
         _file1.shutdown().await.unwrap();
         drop(_file1);
-        tokio::time::delay_for(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
         let line1 = timeout(Duration::from_millis(100), lines.next())
             .await
             .unwrap()
@@ -700,7 +700,7 @@ mod tests {
         _file2.sync_all().await.unwrap();
         _file2.shutdown().await.unwrap();
         drop(_file2);
-        tokio::time::delay_for(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
         {
             let line2 = timeout(Duration::from_millis(100), lines.next())
                 .await
@@ -749,7 +749,7 @@ mod tests {
             .expect("Failed to create file");
         _file1.write_all(b"bar\nbaz\n").await.unwrap();
         _file1.sync_all().await.unwrap();
-        tokio::time::delay_for(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
         {
             let line1 = timeout(Duration::from_millis(100), lines.next_line())
                 .await
@@ -791,7 +791,7 @@ mod tests {
         _file1.sync_all().await.unwrap();
         _file1.shutdown().await.unwrap();
         drop(_file1);
-        tokio::time::delay_for(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
         {
             let line1 = timeout(Duration::from_millis(100), lines.next())
                 .await
@@ -810,7 +810,7 @@ mod tests {
     #[tokio::test]
     async fn test_ops_in_transient_state() {
         use futures_util::future::poll_fn;
-        use tokio::stream::Stream;
+        use futures_util::stream::Stream;
         use tokio::time::timeout;
 
         let tmp_dir = tempdir().unwrap();
@@ -826,7 +826,7 @@ mod tests {
             .expect("Failed to create file");
         _file1.write_all(b"bar\n").await.unwrap();
         _file1.sync_all().await.unwrap();
-        tokio::time::delay_for(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
         let maybe_pending =
             poll_fn(|cx| task::Poll::Ready(Pin::new(&mut lines).poll_next(cx))).await;

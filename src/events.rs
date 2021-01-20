@@ -9,8 +9,8 @@ use std::pin::Pin;
 use std::task;
 
 use futures_util::ready;
+use futures_util::stream::Stream;
 use notify::Watcher as NotifyWatcher;
-use tokio::stream::Stream;
 use tokio::sync::mpsc;
 
 type EventStream = mpsc::UnboundedReceiver<Result<notify::Event, notify::Error>>;
@@ -229,11 +229,11 @@ impl MuxedEvents {
     }
 
     fn __poll_next_event(
-        event_stream: Pin<&mut EventStream>,
+        mut event_stream: Pin<&mut EventStream>,
         cx: &mut task::Context<'_>,
     ) -> task::Poll<Option<io::Result<notify::Event>>> {
         task::Poll::Ready(
-            ready!(event_stream.poll_next(cx)).map(|res| res.map_err(notify_to_io_error)),
+            ready!(event_stream.poll_recv(cx)).map(|res| res.map_err(notify_to_io_error)),
         )
     }
 
@@ -332,10 +332,10 @@ mod tests {
     use super::absolutify;
     use super::MuxedEvents;
     use crate::events::notify_to_io_error;
+    use futures_util::stream::StreamExt;
     use std::time::Duration;
     use tempfile::tempdir;
     use tokio::fs::File;
-    use tokio::stream::StreamExt;
     use tokio::time::timeout;
 
     #[test]
@@ -413,7 +413,7 @@ mod tests {
         _file1.sync_all().await.unwrap();
         _file1.shutdown().await.unwrap();
         drop(_file1);
-        tokio::time::delay_for(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Deleting a file should throw it back into pending
         tokio::fs::remove_file(&file_path1).await.unwrap();
