@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Update Tokio dependency to 1.0
 - Switch to using `futures_util` for Streams
 - Bump MSRV to 1.47 per `notify` update
+- Make tokio optional (but default) to allow for future runtime variance.
 
 ## [0.1.3] - 2020-11-22
 

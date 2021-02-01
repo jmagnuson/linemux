@@ -7,6 +7,7 @@
 //!
 //! ```no_run
 //! use linemux::MuxedLines;
+//! # use _tokio as tokio;
 //!
 //! #[tokio::main]
 //! async fn main() -> std::io::Result<()> {
@@ -39,5 +40,6 @@ mod reader;
 pub use events::MuxedEvents;
 pub use reader::{Line, MuxedLines};
 
-#[cfg(doctest)]
-doc_comment::doctest!("../README.md");
+// FIXME: would otherwise need to expose the `_tokio` rename in docs
+// #[cfg(doctest)]
+// doc_comment::doctest!("../README.md");

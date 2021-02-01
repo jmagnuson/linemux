@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::task;
 
+use _tokio as tokio;
 use futures_util::ready;
 use futures_util::stream::Stream;
 use notify::Watcher as NotifyWatcher;
@@ -332,6 +333,7 @@ mod tests {
     use super::absolutify;
     use super::MuxedEvents;
     use crate::events::notify_to_io_error;
+    use _tokio as tokio;
     use futures_util::stream::StreamExt;
     use std::time::Duration;
     use tempfile::tempdir;

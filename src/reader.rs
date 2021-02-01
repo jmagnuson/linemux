@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::task;
 
+use _tokio as tokio;
 use futures_util::ready;
 use futures_util::stream::Stream;
 use pin_project_lite::pin_project;
@@ -525,6 +526,7 @@ impl Stream for MuxedLines {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use _tokio as tokio;
     use futures_util::stream::StreamExt;
     use std::time::Duration;
     use tempfile::tempdir;
