@@ -17,7 +17,7 @@ Add linemux to your `Cargo.toml` with:
 
 ```toml
 [dependencies]
-linemux = "0.1"
+linemux = "0.2"
 ```
 
 ## Example

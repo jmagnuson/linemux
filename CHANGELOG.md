@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [Unreleased]
 
+## [0.2.0] - 2021-04-18
+
 ### Changed
 - Update Tokio dependency to 1.0
 - Switch to using `futures_util` for Streams
@@ -42,7 +44,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 ### Added
 - Initial library features
 
-[Unreleased]: https://github.com/jmagnuson/linemux/compare/0.1.3...master
+[Unreleased]: https://github.com/jmagnuson/linemux/compare/0.2.0...master
+[0.2.0]: https://github.com/jmagnuson/linemux/compare/0.1.3...0.2.0
 [0.1.3]: https://github.com/jmagnuson/linemux/compare/0.1.2...0.1.3
 [0.1.2]: https://github.com/jmagnuson/linemux/compare/0.1.1...0.1.2
 [0.1.1]: https://github.com/jmagnuson/linemux/compare/0.1.0...0.1.1
