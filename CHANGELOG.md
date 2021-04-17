@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Switch to using `futures_util` for Streams
 - Bump MSRV to 1.47 per `notify` update
 - Make tokio optional (but default) to allow for future runtime variance.
+- `MuxedEvents::add_file` is async and takes `Into<PathBuf>`
 
 ## [0.1.3] - 2020-11-22
 

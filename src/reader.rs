@@ -186,7 +186,7 @@ impl MuxedLines {
     pub async fn add_file(&mut self, path: impl Into<PathBuf>) -> io::Result<PathBuf> {
         let source = path.into();
 
-        let source = self.events.add_file(&source)?;
+        let source = self.events.add_file(&source).await?;
 
         if self.reader_exists(&source) {
             return Ok(source);

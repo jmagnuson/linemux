@@ -15,7 +15,7 @@ pub async fn main() -> std::io::Result<()> {
     let mut events = MuxedEvents::new()?;
 
     for f in args {
-        events.add_file(&f)?;
+        events.add_file(&f).await?;
     }
 
     while let Ok(Some(event)) = events.next_event().await {
