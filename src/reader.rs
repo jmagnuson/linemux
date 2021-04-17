@@ -107,7 +107,7 @@ impl Inner {
         }
     }
 
-    pub fn reader_exists(&self, path: &PathBuf) -> bool {
+    pub fn reader_exists(&self, path: &Path) -> bool {
         // Make sure there isn't already a reader for the file
         self.readers.contains_key(path) || self.pending_readers.contains(path)
     }
@@ -116,7 +116,7 @@ impl Inner {
         self.pending_readers.insert(path)
     }
 
-    pub fn remove_pending(&mut self, path: &PathBuf) -> bool {
+    pub fn remove_pending(&mut self, path: &Path) -> bool {
         self.pending_readers.remove(path)
     }
 
@@ -167,7 +167,7 @@ impl MuxedLines {
         })
     }
 
-    fn reader_exists(&self, path: &PathBuf) -> bool {
+    fn reader_exists(&self, path: &Path) -> bool {
         // Make sure there isn't already a reader for the file
         self.inner.reader_exists(path)
     }
