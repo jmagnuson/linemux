@@ -667,6 +667,12 @@ mod tests {
         let mut _file1 = File::create(&file_path1)
             .await
             .expect("Failed to create file");
+
+        if cfg!(target_os = "macos") {
+            // XXX: OSX sometimes fails `readers.len() == 2` if no delay in between file creates.
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
         let mut _file2 = File::create(&file_path2)
             .await
             .expect("Failed to create file");
