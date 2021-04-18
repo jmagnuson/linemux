@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::task;
 
+use _tokio as tokio;
 use futures_util::ready;
 use futures_util::stream::Stream;
 use pin_project_lite::pin_project;
@@ -185,7 +186,7 @@ impl MuxedLines {
     pub async fn add_file(&mut self, path: impl Into<PathBuf>) -> io::Result<PathBuf> {
         let source = path.into();
 
-        let source = self.events.add_file(&source)?;
+        let source = self.events.add_file(&source).await?;
 
         if self.reader_exists(&source) {
             return Ok(source);
@@ -525,6 +526,7 @@ impl Stream for MuxedLines {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use _tokio as tokio;
     use futures_util::stream::StreamExt;
     use std::time::Duration;
     use tempfile::tempdir;
@@ -665,6 +667,12 @@ mod tests {
         let mut _file1 = File::create(&file_path1)
             .await
             .expect("Failed to create file");
+
+        if cfg!(target_os = "macos") {
+            // XXX: OSX sometimes fails `readers.len() == 2` if no delay in between file creates.
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
         let mut _file2 = File::create(&file_path2)
             .await
             .expect("Failed to create file");

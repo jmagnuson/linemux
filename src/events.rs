@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::task;
 
+use _tokio as tokio;
 use futures_util::ready;
 use futures_util::stream::Stream;
 use notify::Watcher as NotifyWatcher;
@@ -156,8 +157,12 @@ impl MuxedEvents {
     /// Returns the canonicalized version of the path originally supplied, to
     /// match against the one contained in each `notify::Event` received.
     /// Otherwise returns `Error` for a given registration failure.
-    pub fn add_file(&mut self, path: impl AsRef<Path>) -> io::Result<PathBuf> {
-        let path = absolutify(path.as_ref(), true)?;
+    pub async fn add_file(&mut self, path: impl Into<PathBuf>) -> io::Result<PathBuf> {
+        self._add_file(path)
+    }
+
+    fn _add_file(&mut self, path: impl Into<PathBuf>) -> io::Result<PathBuf> {
+        let path = absolutify(path, true)?;
 
         // TODO: non-existent file that later gets created as a dir?
         if path.is_dir() {
@@ -214,12 +219,12 @@ impl MuxedEvents {
                 let parent = path.parent().expect("Pending watched file needs a parent");
                 let _ = self.remove_directory(parent);
                 self.pending_watched_files.remove(path);
-                let _ = self.add_file(path);
+                let _ = self._add_file(path);
             }
 
             if !path_exists && self.watched_files.contains(path) {
                 self.watched_files.remove(path);
-                let _ = self.add_file(path);
+                let _ = self._add_file(path);
             }
 
             self.watched_files.contains(path)
@@ -332,23 +337,24 @@ mod tests {
     use super::absolutify;
     use super::MuxedEvents;
     use crate::events::notify_to_io_error;
+    use _tokio as tokio;
     use futures_util::stream::StreamExt;
     use std::time::Duration;
     use tempfile::tempdir;
     use tokio::fs::File;
     use tokio::time::timeout;
 
-    #[test]
-    fn test_add_directory() {
+    #[tokio::test]
+    async fn test_add_directory() {
         let tmp_dir = tempdir().unwrap();
         let tmp_dir_path = tmp_dir.path();
 
         let mut watcher = MuxedEvents::new().unwrap();
-        assert!(watcher.add_file(&tmp_dir_path).is_err());
+        assert!(watcher.add_file(&tmp_dir_path).await.is_err());
     }
 
-    #[test]
-    fn test_add_bad_filename() {
+    #[tokio::test]
+    async fn test_add_bad_filename() {
         let tmp_dir = tempdir().unwrap();
         let tmp_dir_path = tmp_dir.path();
 
@@ -356,10 +362,10 @@ mod tests {
 
         // This is not okay
         let file_path1 = tmp_dir_path.join("..");
-        assert!(watcher.add_file(&file_path1).is_err());
+        assert!(watcher.add_file(&file_path1).await.is_err());
 
         // Don't add dir as file either
-        assert!(watcher.add_file(&tmp_dir_path).is_err());
+        assert!(watcher.add_file(&tmp_dir_path).await.is_err());
     }
 
     #[tokio::test]
@@ -375,11 +381,11 @@ mod tests {
 
         let mut watcher = MuxedEvents::new().unwrap();
         let _ = format!("{:?}", watcher);
-        watcher.add_file(&file_path1).unwrap();
-        watcher.add_file(&file_path2).unwrap();
+        watcher.add_file(&file_path1).await.unwrap();
+        watcher.add_file(&file_path2).await.unwrap();
 
         // Registering the same path again should be fine
-        watcher.add_file(&file_path2).unwrap();
+        watcher.add_file(&file_path2).await.unwrap();
 
         assert_eq!(watcher.pending_watched_files.len(), 2);
         assert!(watcher.watched_directories.contains_key(&pathclone));
