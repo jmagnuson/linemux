@@ -8,11 +8,11 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::task;
 
-use _tokio as tokio;
 use futures_util::ready;
 use futures_util::stream::Stream;
 use notify::Watcher as NotifyWatcher;
 use tokio::sync::mpsc;
+use tokio_ as tokio;
 
 type EventStream = mpsc::UnboundedReceiver<Result<notify::Event, notify::Error>>;
 
@@ -337,12 +337,12 @@ mod tests {
     use super::absolutify;
     use super::MuxedEvents;
     use crate::events::notify_to_io_error;
-    use _tokio as tokio;
     use futures_util::stream::StreamExt;
     use std::time::Duration;
     use tempfile::tempdir;
     use tokio::fs::File;
     use tokio::time::timeout;
+    use tokio_ as tokio;
 
     #[tokio::test]
     async fn test_add_directory() {

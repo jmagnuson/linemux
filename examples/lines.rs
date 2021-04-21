@@ -27,4 +27,4 @@ pub async fn main() -> std::io::Result<()> {
 
 // Ignore this (not necessary for normal application use)
 // Ref: https://github.com/tokio-rs/tokio/issues/2312
-use _tokio as tokio;
+use tokio_ as tokio;
