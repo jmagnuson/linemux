@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [Unreleased]
 
+## [0.2.1] - 2021-04-23
+
+- Marker release only (no functional changes)
+
 ## [0.2.0] - 2021-04-18
 
 ### Changed
@@ -44,7 +48,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 ### Added
 - Initial library features
 
-[Unreleased]: https://github.com/jmagnuson/linemux/compare/0.2.0...master
+[Unreleased]: https://github.com/jmagnuson/linemux/compare/0.2.1...master
+[0.2.1]: https://github.com/jmagnuson/linemux/compare/0.2.0...0.2.1
 [0.2.0]: https://github.com/jmagnuson/linemux/compare/0.1.3...0.2.0
 [0.1.3]: https://github.com/jmagnuson/linemux/compare/0.1.2...0.1.3
 [0.1.2]: https://github.com/jmagnuson/linemux/compare/0.1.1...0.1.2
