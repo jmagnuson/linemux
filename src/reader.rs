@@ -11,9 +11,22 @@ use std::task;
 use futures_util::ready;
 use futures_util::stream::Stream;
 use pin_project_lite::pin_project;
+#[cfg(feature = "tokio")]
 use tokio::fs::{metadata, File};
+#[cfg(feature = "tokio")]
 use tokio::io::{AsyncBufReadExt, AsyncSeekExt, BufReader, Lines};
+#[cfg(feature = "tokio")]
 use tokio_ as tokio;
+
+#[cfg(feature = "async-std")]
+use async_std::fs::{metadata, File};
+#[cfg(feature = "async-std")]
+use async_std::io::{
+    prelude::{BufReadExt, SeekExt},
+    BufReader, Lines,
+};
+#[cfg(feature = "async-std")]
+use async_std_ as async_std;
 
 type LineReader = Lines<BufReader<File>>;
 
@@ -241,7 +254,10 @@ impl MuxedLines {
                 StreamState::ReadLines(paths, ref mut path_index) => {
                     if let Some(path) = paths.get(*path_index) {
                         if let Some(reader) = inner.readers.get_mut(path) {
-                            let res = ready!(Pin::new(reader).poll_next_line(cx));
+                            #[cfg(feature = "tokio")]
+                            let res = { ready!(Pin::new(reader).poll_next_line(cx)) };
+                            #[cfg(feature = "async-std")]
+                            let res = { ready!(Pin::new(reader).poll_next(cx)).transpose() };
 
                             match res {
                                 Ok(Some(line)) => {

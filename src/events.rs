@@ -11,10 +11,20 @@ use std::task;
 use futures_util::ready;
 use futures_util::stream::Stream;
 use notify::Watcher as NotifyWatcher;
+#[cfg(feature = "tokio")]
 use tokio::sync::mpsc;
+#[cfg(feature = "tokio")]
 use tokio_ as tokio;
 
+#[cfg(feature = "async-std")]
+use async_std::channel as mpsc;
+#[cfg(feature = "async-std")]
+use async_std_ as async_std;
+
+#[cfg(feature = "tokio")]
 type EventStream = mpsc::UnboundedReceiver<Result<notify::Event, notify::Error>>;
+#[cfg(feature = "async-std")]
+type EventStream = mpsc::Receiver<Result<notify::Event, notify::Error>>;
 
 fn notify_to_io_error(e: notify::Error) -> io::Error {
     match e.kind {
@@ -58,7 +68,10 @@ impl Debug for MuxedEvents {
 impl MuxedEvents {
     /// Constructs a new `MuxedEvents` instance.
     pub fn new() -> io::Result<Self> {
+        #[cfg(feature = "tokio")]
         let (tx, rx) = mpsc::unbounded_channel();
+        #[cfg(feature = "async-std")]
+        let (tx, rx) = mpsc::unbounded();
         let inner: notify::RecommendedWatcher = NotifyWatcher::new_immediate(move |res| {
             // The only way `send` can fail is if the receiver is dropped,
             // and `MuxedEvents` controls both. `unwrap` is not used,
@@ -234,12 +247,22 @@ impl MuxedEvents {
     }
 
     fn __poll_next_event(
-        mut event_stream: Pin<&mut EventStream>,
+        event_stream: Pin<&mut EventStream>,
         cx: &mut task::Context<'_>,
     ) -> task::Poll<Option<io::Result<notify::Event>>> {
-        task::Poll::Ready(
-            ready!(event_stream.poll_recv(cx)).map(|res| res.map_err(notify_to_io_error)),
-        )
+        #[cfg(feature = "tokio")]
+        {
+            let mut event_stream = event_stream;
+            task::Poll::Ready(
+                ready!(event_stream.poll_recv(cx)).map(|res| res.map_err(notify_to_io_error)),
+            )
+        }
+        #[cfg(feature = "async-std")]
+        {
+            task::Poll::Ready(
+                ready!(event_stream.poll_next(cx)).map(|res| res.map_err(notify_to_io_error)),
+            )
+        }
     }
 
     #[doc(hidden)]

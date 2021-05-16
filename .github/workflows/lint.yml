@@ -32,9 +32,14 @@ jobs:
       - name: Install clippy
         run: rustup component add clippy
 
-      - name: Run clippy
+      - name: Run clippy (default)
         uses: actions-rs/clippy-check@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           args: --all --bins --examples --tests --benches -- -Wclippy::all -Dwarnings
 
+      - name: Run clippy (async-std)
+        uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --no-default-features --features=async-std -- -Wclippy::all -Dwarnings
