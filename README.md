@@ -42,6 +42,11 @@ async fn main() -> std::io::Result<()> {
 }
 ```
 
+## Feature flags
+
+- `tokio`: Use the tokio runtime (default).
+- `async-std`: Use the async-std runtime.
+
 ## Caveats
 
 Currently, linemux assumes that if a nonexistent file is added, its parent does
