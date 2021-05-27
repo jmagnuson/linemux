@@ -30,17 +30,7 @@ async fn new_linereader(path: impl AsRef<Path>, seek_pos: Option<u64>) -> io::Re
 
 macro_rules! unwrap_or {
     ($opt:expr, $or:expr) => {
-        if let Some(val) = $opt {
-            val
-        } else {
-            $or;
-        }
-    };
-}
-
-macro_rules! unwrap_res_or {
-    ($res:expr, $or:expr) => {
-        if let Ok(val) = $res {
+        if let Some(val) = $opt.into_iter().next() {
             val
         } else {
             $or;
@@ -51,12 +41,6 @@ macro_rules! unwrap_res_or {
 macro_rules! unwrap_or_continue {
     ($opt:expr) => {
         unwrap_or!($opt, continue)
-    };
-}
-
-macro_rules! unwrap_res_or_continue {
-    ($res:expr) => {
-        unwrap_res_or!($res, continue)
     };
 }
 
@@ -232,7 +216,7 @@ impl MuxedLines {
         loop {
             let (new_state, maybe_line) = match stream_state {
                 StreamState::Events => {
-                    let event = unwrap_res_or_continue!(unwrap_or_continue!(ready!(events
+                    let event = unwrap_or_continue!(unwrap_or_continue!(ready!(events
                         .as_mut()
                         .poll_next(cx))));
                     (
