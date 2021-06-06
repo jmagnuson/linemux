@@ -206,10 +206,15 @@ impl MuxedEvents {
             let path_exists =
                 if let notify::EventKind::Remove(notify::event::RemoveKind::File) = &event.kind {
                     false
-                } else if let notify::EventKind::Modify(notify::event::ModifyKind::Name(_)) =
-                    &event.kind
+                } else if let notify::EventKind::Modify(notify::event::ModifyKind::Name(
+                    notify::event::RenameMode::From,
+                )) = &event.kind
                 {
-                    false
+                    if cfg!(target_os = "macos") {
+                        path.exists()
+                    } else {
+                        false
+                    }
                 } else {
                     path.exists()
                 };

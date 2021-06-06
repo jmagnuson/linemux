@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+- Properly handle renaming to a watched file, and fix panic when checking
+  nonexistent reader position.
+
 ## [0.2.1] - 2021-04-23
 
 - Marker release only (no functional changes)

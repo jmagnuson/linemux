@@ -429,10 +429,24 @@ fn poll_handle_event(
                 match state.await_state {
                     HandleEventAwaitState::Idle => {
                         // Windows returns `Any` for file modification, so handle that
-                        match (cfg!(target_os = "windows"), modify_event) {
-                            (_, notify::event::ModifyKind::Data(_)) => {}
-                            (true, notify::event::ModifyKind::Any) => {}
-                            (_, _) => {
+                        match (
+                            cfg!(target_os = "windows"),
+                            cfg!(target_os = "macos"),
+                            modify_event,
+                        ) {
+                            (_, _, notify::event::ModifyKind::Data(_)) => {}
+                            (
+                                _,
+                                _,
+                                notify::event::ModifyKind::Name(notify::event::RenameMode::To),
+                            ) => {}
+                            (
+                                _,
+                                true,
+                                notify::event::ModifyKind::Name(notify::event::RenameMode::From),
+                            ) => {}
+                            (true, _, notify::event::ModifyKind::Any) => {}
+                            (_, _, _) => {
                                 state.path_index += 1;
                                 continue;
                             }
@@ -446,26 +460,35 @@ fn poll_handle_event(
                         let metadata_res = ready!(metadata_fut.as_mut().poll(cx));
                         if let Ok(metadata) = metadata_res {
                             let path = event.paths.get(state.path_index).expect("Got None Path");
-                            let pos = inner
-                                .reader_positions
-                                .get_mut(path)
-                                .expect("missing reader position");
+                            let maybe_pos = inner.reader_positions.get_mut(path);
 
                             let size = metadata.len();
 
-                            if size < *pos {
-                                // rolled
-                                *pos = 0;
+                            if let Some(pos) = maybe_pos {
+                                if size < *pos {
+                                    // rolled
+                                    *pos = 0;
 
-                                let reader_fut = Box::pin(new_linereader(path.clone(), None));
+                                    let reader_fut = Box::pin(new_linereader(path.clone(), None));
+
+                                    Some(HandleEventAwaitState::NewLineReader(reader_fut))
+                                } else {
+                                    // didn't roll, just update size
+                                    *pos = size;
+
+                                    state.path_index += 1;
+                                    Some(HandleEventAwaitState::Idle)
+                                }
+                            } else {
+                                let _preset = inner.remove_pending(path);
+
+                                let _previous_pos =
+                                    inner.insert_reader_position(path.clone(), size);
+
+                                // A Modify without a Create, so we never got a reader
+                                let reader_fut = Box::pin(new_linereader(path.clone(), Some(size)));
 
                                 Some(HandleEventAwaitState::NewLineReader(reader_fut))
-                            } else {
-                                // didn't roll, just update size
-                                *pos = size;
-
-                                state.path_index += 1;
-                                Some(HandleEventAwaitState::Idle)
                             }
                         } else {
                             state.path_index += 1;
@@ -859,5 +882,57 @@ mod tests {
         // No files added, expect None
         assert!(watcher.next_line().await.unwrap().is_none());
         assert!(watcher.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_add_existing_file() {
+        use tokio::time::timeout;
+
+        let tmp_dir = tempdir().unwrap();
+        let tmp_dir_path = tmp_dir.path();
+
+        let file_path1 = tmp_dir_path.join("foo.txt");
+        let file_path2 = tmp_dir_path.join("bar.txt");
+
+        let mut lines = MuxedLines::new().unwrap();
+        lines.add_file(&file_path2).await.unwrap();
+
+        assert_eq!(lines.inner.pending_readers.len(), 1);
+
+        let mut _file1 = File::create(&file_path1)
+            .await
+            .expect("Failed to create file");
+
+        if cfg!(target_os = "macos") {
+            // XXX: OSX sometimes fails `readers.len() == 2` if no delay in between file creates.
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
+        _file1.write_all(b"foo\n").await.unwrap();
+        _file1.sync_all().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        tokio::fs::rename(&file_path1, &file_path2).await.unwrap();
+
+        // Spin to handle the rename event
+        let res = timeout(Duration::from_millis(100), lines.next_line()).await;
+        assert!(res.is_err());
+
+        // Now the files should be readable
+        assert_eq!(lines.inner.readers.len(), 1);
+
+        _file1.write_all(b"now bar\n").await.unwrap();
+        _file1.sync_all().await.unwrap();
+        _file1.shutdown().await.unwrap();
+        drop(_file1);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let line1 = timeout(Duration::from_millis(100), lines.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(line1.source().to_str().unwrap().contains("bar.txt"));
+        assert_eq!(line1.line(), "now bar");
     }
 }
