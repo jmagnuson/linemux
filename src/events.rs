@@ -8,11 +8,13 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::task;
 
-use futures_util::ready;
+use futures_util::{ready, FutureExt};
 use futures_util::stream::Stream;
 use notify::Watcher as NotifyWatcher;
 use tokio::sync::mpsc;
 use tokio_ as tokio;
+use std::task::{Context, Poll};
+use std::future::Future;
 
 type EventStream = mpsc::UnboundedReceiver<Result<notify::Event, notify::Error>>;
 
@@ -288,6 +290,54 @@ impl Stream for MuxedEvents {
         cx: &mut task::Context<'_>,
     ) -> task::Poll<Option<Self::Item>> {
         self.poll_next_event(cx).map(Result::transpose)
+    }
+}
+
+type MetadataFuture = Pin<Box<dyn std::future::Future<Output = io::Result<std::fs::Metadata>> + Send + Sync>>;
+
+enum AddFileState {
+    Idle,
+    Metadata(MetadataFuture)
+}
+
+impl AddFileState {
+    pub fn new(fut: MetadataFuture) -> Self {
+        AddFileState::Metadata(fut)
+    }
+}
+
+impl Default for AddFileState {
+    fn default() -> Self {
+        AddFileState::Idle
+    }
+}
+
+struct AddFileFuture {
+    inner: AddFileState,
+}
+
+impl AddFileFuture {
+    pub fn new(path: impl AsRef<Path>) -> Self {
+        let fut = tokio::fs::metadata(path.as_ref()).boxed();
+        AddFileFuture {
+            inner: AddFileState::Metadata(fut)
+        }
+    }
+}
+
+impl Default for AddFileFuture {
+    fn default() -> Self {
+        AddFileFuture {
+            inner: Default::default(),
+        }
+    }
+}
+
+impl std::future::Future for AddFileFuture {
+    type Output = io::Result<std::fs::Metadata>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        ready!(Pin::new(&mut self.inn))
     }
 }
 

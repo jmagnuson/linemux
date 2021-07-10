@@ -176,14 +176,7 @@ impl MuxedLines {
             return Ok(source);
         }
 
-        if !source.exists() {
-            let didnt_exist = self.inner.insert_pending(source.clone());
-
-            // If this fails it's a bug
-            assert!(didnt_exist);
-        } else {
-            let size = metadata(&source).await?.len();
-
+        if let Ok(size) = metadata(&source).map(|md| md.len()).await {
             let reader = new_linereader(&source, Some(size)).await?;
 
             let inner_mut = &mut self.inner;
@@ -192,6 +185,11 @@ impl MuxedLines {
 
             // If this fails it's a bug
             assert!(last.is_none());
+        } else {
+            let didnt_exist = self.inner.insert_pending(source.clone());
+
+            // If this fails it's a bug
+            assert!(didnt_exist);
         }
         // TODO: prob need 'pending' for non-existent files like Events
 
