@@ -35,7 +35,7 @@ fn notify_to_io_error(e: notify::Error) -> io::Error {
 ///
 /// [`notify::Watcher`]: https://docs.rs/notify/5.0.0-pre.2/notify/trait.Watcher.html
 pub struct MuxedEvents {
-    inner: notify::RecommendedWatcher,
+    inner: Box<dyn notify::Watcher + Send + Sync + Unpin + 'static>,
     watched_directories: HashMap<PathBuf, usize>,
     /// Files that are successfully being watched
     watched_files: HashSet<PathBuf>,
@@ -58,8 +58,35 @@ impl Debug for MuxedEvents {
 impl MuxedEvents {
     /// Constructs a new `MuxedEvents` instance.
     pub fn new() -> io::Result<Self> {
+        #[cfg(target_os = "macos")]
+        // use notify::kqueue::KqueueWatcher as WatcherImpl;
+        use notify::RecommendedWatcher as WatcherImpl;
+        #[cfg(not(target_os = "macos"))]
+        use notify::RecommendedWatcher as WatcherImpl;
+
         let (tx, rx) = mpsc::unbounded_channel();
-        let inner: notify::RecommendedWatcher = NotifyWatcher::new_immediate(move |res| {
+        let inner = Box::new({
+            use std::sync::{Arc, Mutex};
+            let sender_fn = move |res| {
+                // The only way `send` can fail is if the receiver is dropped,
+                // and `MuxedEvents` controls both. `unwrap` is not used,
+                // however, since `Drop` idiosyncrasies could otherwise result
+                // in a panic.
+                let _ = tx.send(res);
+            };
+            #[cfg(target_os = "macos")]
+            let res = notify::poll::PollWatcher::with_delay(
+                Arc::new(Mutex::new(sender_fn)),
+                std::time::Duration::from_millis(50)
+            );
+            #[cfg(not(target_os = "macos"))]
+            let res = notify::RecommendedWatcher::new(sender_fn);
+
+            res.map_err(notify_to_io_error)?
+        });
+
+        /*
+        let inner = WatcherImpl::new(move |res| {
             // The only way `send` can fail is if the receiver is dropped,
             // and `MuxedEvents` controls both. `unwrap` is not used,
             // however, since `Drop` idiosyncrasies could otherwise result
@@ -67,6 +94,7 @@ impl MuxedEvents {
             let _ = tx.send(res);
         })
         .map_err(notify_to_io_error)?;
+         */
 
         Ok(MuxedEvents {
             inner,
@@ -86,14 +114,14 @@ impl MuxedEvents {
             || self.watched_directories.contains_key(&path.to_path_buf())
     }
 
-    fn watch(watcher: &mut notify::RecommendedWatcher, path: impl AsRef<Path>) -> io::Result<()> {
+    fn watch(watcher: &mut dyn notify::Watcher, path: impl AsRef<Path>) -> io::Result<()> {
         watcher
-            .watch(path, notify::RecursiveMode::NonRecursive)
+            .watch(path.as_ref(), notify::RecursiveMode::NonRecursive)
             .map_err(notify_to_io_error)
     }
 
-    fn unwatch(watcher: &mut notify::RecommendedWatcher, path: impl AsRef<Path>) -> io::Result<()> {
-        watcher.unwatch(path).map_err(notify_to_io_error)
+    fn unwatch(watcher: &mut dyn notify::Watcher, path: impl AsRef<Path>) -> io::Result<()> {
+        watcher.unwatch(path.as_ref()).map_err(notify_to_io_error)
     }
 
     fn add_directory(&mut self, path: impl AsRef<Path>) -> io::Result<()> {
@@ -103,7 +131,7 @@ impl MuxedEvents {
         // duplicate events if called multiple times.
         if !self.watch_exists(path_ref) {
             NotifyWatcher::watch(
-                &mut self.inner,
+                &mut *self.inner,
                 path_ref,
                 notify::RecursiveMode::NonRecursive,
             )
@@ -128,7 +156,7 @@ impl MuxedEvents {
                 1 => {
                     // Remove from map first in case `unwatch` fails.
                     self.watched_directories.remove(path_ref);
-                    Self::unwatch(&mut self.inner, path_ref)?;
+                    Self::unwatch(&mut *self.inner, path_ref)?;
                 }
                 _ => {
                     let new_count = self
@@ -187,7 +215,7 @@ impl MuxedEvents {
             self.add_directory(&parent)?;
             self.pending_watched_files.insert(path.clone());
         } else {
-            Self::watch(&mut self.inner, &path)?;
+            Self::watch(&mut *self.inner, &path)?;
 
             self.watched_files.insert(path.clone());
         }
