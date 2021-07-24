@@ -59,7 +59,7 @@ impl MuxedEvents {
     /// Constructs a new `MuxedEvents` instance.
     pub fn new() -> io::Result<Self> {
         let (tx, rx) = mpsc::unbounded_channel();
-        let inner: notify::RecommendedWatcher = NotifyWatcher::new_immediate(move |res| {
+        let inner: notify::RecommendedWatcher = notify::RecommendedWatcher::new(move |res| {
             // The only way `send` can fail is if the receiver is dropped,
             // and `MuxedEvents` controls both. `unwrap` is not used,
             // however, since `Drop` idiosyncrasies could otherwise result
@@ -86,13 +86,13 @@ impl MuxedEvents {
             || self.watched_directories.contains_key(&path.to_path_buf())
     }
 
-    fn watch(watcher: &mut notify::RecommendedWatcher, path: impl AsRef<Path>) -> io::Result<()> {
+    fn watch(watcher: &mut notify::RecommendedWatcher, path: &Path) -> io::Result<()> {
         watcher
             .watch(path, notify::RecursiveMode::NonRecursive)
             .map_err(notify_to_io_error)
     }
 
-    fn unwatch(watcher: &mut notify::RecommendedWatcher, path: impl AsRef<Path>) -> io::Result<()> {
+    fn unwatch(watcher: &mut notify::RecommendedWatcher, path: &Path) -> io::Result<()> {
         watcher.unwatch(path).map_err(notify_to_io_error)
     }
 
