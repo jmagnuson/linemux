@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+- Update `notify` to `5.0.0-pre.11`, and use updated API internally
+
 ## [0.2.2] - 2021-06-06
 
 ### Fixed
