@@ -196,19 +196,18 @@ impl MuxedEvents {
     }
 
     fn handle_event(&mut self, event: &mut notify::Event) {
-        use std::mem;
-
-        let mut paths = mem::replace(&mut event.paths, Vec::new());
+        let paths = &mut event.paths;
+        let event_kind = &event.kind;
 
         // TODO: properly handle any errors encountered adding/removing stuff
         paths.retain(|path| {
             // Fixes a potential race when detecting file rotations.
             let path_exists =
-                if let notify::EventKind::Remove(notify::event::RemoveKind::File) = &event.kind {
+                if let notify::EventKind::Remove(notify::event::RemoveKind::File) = &event_kind {
                     false
                 } else if let notify::EventKind::Modify(notify::event::ModifyKind::Name(
                     notify::event::RenameMode::From,
-                )) = &event.kind
+                )) = &event_kind
                 {
                     if cfg!(target_os = "macos") {
                         path.exists()
@@ -234,8 +233,6 @@ impl MuxedEvents {
 
             self.watched_files.contains(path)
         });
-
-        let _ = mem::replace(&mut event.paths, paths);
     }
 
     fn __poll_next_event(

@@ -231,7 +231,7 @@ impl MuxedLines {
                             if event.paths.is_empty() {
                                 (StreamState::Events, None)
                             } else {
-                                let paths = std::mem::replace(&mut event.paths, Vec::new());
+                                let paths = std::mem::take(&mut event.paths);
                                 (StreamState::ReadLines(paths, 0), None)
                             }
                         }
