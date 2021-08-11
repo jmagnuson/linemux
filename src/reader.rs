@@ -167,7 +167,7 @@ impl MuxedLines {
     /// Returns the canonicalized version of the path originally supplied, to
     /// match against the one contained in each `Line` received. Otherwise
     /// returns `io::Error` for a given registration failure.
-    pub async fn add_file(&mut self, path: impl Into<PathBuf>) -> io::Result<PathBuf> {
+    pub async fn add_file(&mut self, path: impl Into<PathBuf>, from_start: bool) -> io::Result<PathBuf> {
         let source = path.into();
 
         let source = self.events.add_file(&source).await?;
@@ -182,7 +182,10 @@ impl MuxedLines {
             // If this fails it's a bug
             assert!(didnt_exist);
         } else {
-            let size = metadata(&source).await?.len();
+            let size = match from_start {
+                true => 0,
+                false => metadata(&source).await?.len(),
+            };
 
             let reader = new_linereader(&source, Some(size)).await?;
 
