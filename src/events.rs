@@ -78,12 +78,14 @@ impl MuxedEvents {
     }
 
     fn watch_exists(&self, path: impl AsRef<Path>) -> bool {
-        let path = path.as_ref();
+        self._watch_exists(path.as_ref())
+    }
 
+    fn _watch_exists(&self, path: &Path) -> bool {
         // Make sure we aren't already watching the directory
-        self.watched_files.contains(&path.to_path_buf())
-            || self.pending_watched_files.contains(&path.to_path_buf())
-            || self.watched_directories.contains_key(&path.to_path_buf())
+        self.watched_files.contains(path)
+            || self.pending_watched_files.contains(path)
+            || self.watched_directories.contains_key(path)
     }
 
     fn watch(watcher: &mut notify::RecommendedWatcher, path: &Path) -> io::Result<()> {
@@ -97,8 +99,10 @@ impl MuxedEvents {
     }
 
     fn add_directory(&mut self, path: impl AsRef<Path>) -> io::Result<()> {
-        let path_ref = path.as_ref();
+        self._add_directory(path.as_ref())
+    }
 
+    fn _add_directory(&mut self, path_ref: &Path) -> io::Result<()> {
         // `watch` behavior is platform-specific, and on some (windows) can produce
         // duplicate events if called multiple times.
         if !self.watch_exists(path_ref) {
@@ -120,8 +124,10 @@ impl MuxedEvents {
     }
 
     fn remove_directory(&mut self, path: impl AsRef<Path>) -> io::Result<()> {
-        let path_ref = path.as_ref();
+        self._remove_directory(path.as_ref())
+    }
 
+    fn _remove_directory(&mut self, path_ref: &Path) -> io::Result<()> {
         if let Some(count) = self.watched_directories.get(path_ref).copied() {
             match count {
                 0 => unreachable!(), // watch is removed if count == 1
@@ -290,48 +296,51 @@ impl Stream for MuxedEvents {
 
 // TODO: maybe use with crate `path-absolutize`
 fn absolutify(path: impl Into<PathBuf>, is_file: bool) -> io::Result<PathBuf> {
-    let path = path.into();
-
-    let (dir, maybe_filename) = if is_file {
-        let parent = match path.parent() {
-            None => std::env::current_dir()?,
-            Some(path) => {
-                if path == Path::new("") {
-                    std::env::current_dir()?
-                } else {
-                    path.to_path_buf()
+    fn inner(path: PathBuf, is_file: bool) -> io::Result<PathBuf> {
+        let (dir, maybe_filename) = if is_file {
+            let parent = match path.parent() {
+                None => std::env::current_dir()?,
+                Some(path) => {
+                    if path == Path::new("") {
+                        std::env::current_dir()?
+                    } else {
+                        path.to_path_buf()
+                    }
                 }
-            }
+            };
+            let filename = path
+                .file_name()
+                .ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::NotFound, "Filename not found in path")
+                })?
+                .to_os_string();
+
+            (parent, Some(filename))
+        } else {
+            (path, None)
         };
-        let filename = path
-            .file_name()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Filename not found in path"))?
-            .to_os_string();
 
-        (parent, Some(filename))
-    } else {
-        (path, None)
-    };
+        let dir = if let Ok(linked_dir) = dir.read_link() {
+            linked_dir
+        } else {
+            dir
+        };
 
-    let dir = if let Ok(linked_dir) = dir.read_link() {
-        linked_dir
-    } else {
-        dir
-    };
+        let dir = if let Ok(abs_dir) = dir.canonicalize() {
+            abs_dir
+        } else {
+            dir
+        };
 
-    let dir = if let Ok(abs_dir) = dir.canonicalize() {
-        abs_dir
-    } else {
-        dir
-    };
+        let path = if let Some(filename) = maybe_filename {
+            dir.join(filename)
+        } else {
+            dir
+        };
 
-    let path = if let Some(filename) = maybe_filename {
-        dir.join(filename)
-    } else {
-        dir
-    };
-
-    Ok(path)
+        Ok(path)
+    }
+    inner(path.into(), is_file)
 }
 
 #[cfg(test)]

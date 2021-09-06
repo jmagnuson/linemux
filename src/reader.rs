@@ -18,14 +18,16 @@ use tokio_ as tokio;
 type LineReader = Lines<BufReader<File>>;
 
 async fn new_linereader(path: impl AsRef<Path>, seek_pos: Option<u64>) -> io::Result<LineReader> {
-    let path = path.as_ref();
-    let mut reader = File::open(path).await?;
-    if let Some(pos) = seek_pos {
-        reader.seek(io::SeekFrom::Start(pos)).await?;
-    }
-    let reader = BufReader::new(reader).lines();
+    async fn inner(path: &Path, seek_pos: Option<u64>) -> io::Result<LineReader> {
+        let mut reader = File::open(path).await?;
+        if let Some(pos) = seek_pos {
+            reader.seek(io::SeekFrom::Start(pos)).await?;
+        }
+        let reader = BufReader::new(reader).lines();
 
-    Ok(reader)
+        Ok(reader)
+    }
+    inner(path.as_ref(), seek_pos).await
 }
 
 macro_rules! unwrap_or {
@@ -168,8 +170,10 @@ impl MuxedLines {
     /// match against the one contained in each `Line` received. Otherwise
     /// returns `io::Error` for a given registration failure.
     pub async fn add_file(&mut self, path: impl Into<PathBuf>) -> io::Result<PathBuf> {
-        let source = path.into();
+        self._add_file(path.into()).await
+    }
 
+    async fn _add_file(&mut self, source: PathBuf) -> io::Result<PathBuf> {
         let source = self.events.add_file(&source).await?;
 
         if self.reader_exists(&source) {

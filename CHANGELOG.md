@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [0.2.3] - 2021-07-31
 
+### Changed
+- Use generics only in exposed API layer to reduce monomorphization
+
 ### Fixed
 - Update `notify` to `5.0.0-pre.11` to fix build errors
 
