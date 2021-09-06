@@ -14,8 +14,9 @@ use notify::Watcher as NotifyWatcher;
 use tokio::sync::mpsc;
 use tokio_ as tokio;
 
-type EventStream = mpsc::UnboundedReceiver<Result<notify::Event, notify::Error>>;
 type BoxedWatcher = Box<dyn notify::Watcher + Send + Sync + Unpin + 'static>;
+type EventStream = mpsc::UnboundedReceiver<Result<notify::Event, notify::Error>>;
+type EventStreamSender = mpsc::UnboundedSender<Result<notify::Event, notify::Error>>;
 
 fn notify_to_io_error(e: notify::Error) -> io::Error {
     match e.kind {
@@ -44,6 +45,7 @@ pub struct MuxedEvents {
     /// in for the watched parent directory.
     pending_watched_files: HashSet<PathBuf>,
     event_stream: EventStream,
+    event_stream_sender: EventStreamSender,
 }
 
 impl Debug for MuxedEvents {
@@ -60,6 +62,8 @@ impl MuxedEvents {
     /// Constructs a new `MuxedEvents` instance.
     pub fn new() -> io::Result<Self> {
         let (tx, rx) = mpsc::unbounded_channel();
+        let sender = tx.clone();
+
         let inner: notify::RecommendedWatcher = notify::RecommendedWatcher::new(
             move |res| {
                 // The only way `send` can fail is if the receiver is dropped,
@@ -78,6 +82,7 @@ impl MuxedEvents {
             watched_files: HashSet::new(),
             pending_watched_files: HashSet::new(),
             event_stream: rx,
+            event_stream_sender: sender,
         })
     }
 
@@ -162,10 +167,21 @@ impl MuxedEvents {
     /// match against the one contained in each `notify::Event` received.
     /// Otherwise returns `Error` for a given registration failure.
     pub async fn add_file(&mut self, path: impl Into<PathBuf>) -> io::Result<PathBuf> {
-        self._add_file(path)
+        self._add_file(path, false)
     }
 
-    fn _add_file(&mut self, path: impl Into<PathBuf>) -> io::Result<PathBuf> {
+    /// Adds a given file to the event watch, allowing for files which do not
+    /// yet exist. Once the file is added, an event is immediately created for
+    /// the file to trigger reading it as soon as events are being read.
+    ///
+    /// Returns the canonicalized version of the path originally supplied, to
+    /// match against the one contained in each `notify::Event` received.
+    /// Otherwise returns `Error` for a given registration failure.
+    pub async fn add_file_initial_event(&mut self, path: impl Into<PathBuf>) -> io::Result<PathBuf> {
+        self._add_file(path, true)
+    }
+
+    fn _add_file(&mut self, path: impl Into<PathBuf>, initial_event: bool) -> io::Result<PathBuf> {
         let path = absolutify(path, true)?;
 
         // TODO: non-existent file that later gets created as a dir?
@@ -194,6 +210,20 @@ impl MuxedEvents {
             Self::watch(self.inner.as_mut(), &path)?;
 
             self.watched_files.insert(path.clone());
+
+            if initial_event {
+                // Send an initial event for this file when requested.
+                // This is useful if we wanted earlier lines in the file than
+                // where it is up to now, and we want those events before the
+                // next time this file is modified.
+                self.event_stream_sender.send(Ok(notify::Event {
+                    attrs: notify::event::EventAttributes::new(),
+                    kind: notify::EventKind::Create(notify::event::CreateKind::File),
+                    paths: vec![path.clone()],
+                })).ok();
+                // Errors here are not anything to worry about, so we .ok();
+                // An error would just mean no one is listening.
+            }
         }
 
         Ok(path)
@@ -227,12 +257,12 @@ impl MuxedEvents {
                 let parent = path.parent().expect("Pending watched file needs a parent");
                 let _ = self.remove_directory(parent);
                 self.pending_watched_files.remove(path);
-                let _ = self._add_file(path);
+                let _ = self._add_file(path, false);
             }
 
             if !path_exists && self.watched_files.contains(path) {
                 self.watched_files.remove(path);
-                let _ = self._add_file(path);
+                let _ = self._add_file(path, false);
             }
 
             if event_kind.is_remove() {
