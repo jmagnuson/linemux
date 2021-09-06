@@ -167,10 +167,28 @@ impl MuxedLines {
     /// Returns the canonicalized version of the path originally supplied, to
     /// match against the one contained in each `Line` received. Otherwise
     /// returns `io::Error` for a given registration failure.
-    pub async fn add_file(&mut self, path: impl Into<PathBuf>, from_start: bool) -> io::Result<PathBuf> {
-        let source = path.into();
+    pub async fn add_file(&mut self, path: impl Into<PathBuf>) -> io::Result<PathBuf> {
+        self._add_file(path, false).await
+    }
 
-        let source = self.events.add_file(&source).await?;
+    /// Adds a given file to the lines watch, allowing for files which do not
+    /// yet exist. Starts reading the file from the beginning if one already
+    /// exists
+    ///
+    /// Returns the canonicalized version of the path originally supplied, to
+    /// match against the one contained in each `Line` received. Otherwise
+    /// returns `io::Error` for a given registration failure.
+    pub async fn add_file_from_start(&mut self, path: impl Into<PathBuf>) -> io::Result<PathBuf> {
+        self._add_file(path, true).await
+    }
+
+    /// private implementation of add_file and add_file_from_start
+    async fn _add_file(&mut self, path: impl Into<PathBuf>, from_start: bool) -> io::Result<PathBuf> {
+        let source = path.into();
+        let source = match from_start {
+            true => self.events.add_file_initial_event(&source).await?,
+            false => self.events.add_file(&source).await?,
+        };
 
         if self.reader_exists(&source) {
             return Ok(source);
