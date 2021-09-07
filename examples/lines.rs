@@ -10,7 +10,14 @@ use linemux::MuxedLines;
 
 #[tokio::main]
 pub async fn main() -> std::io::Result<()> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut show_source = true;
+
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+
+    if args.get(0).map(|s| s.as_str()) == Some("--no-source") {
+        show_source = false;
+        args.remove(0);
+    }
 
     let mut lines = MuxedLines::new()?;
 
@@ -19,7 +26,11 @@ pub async fn main() -> std::io::Result<()> {
     }
 
     while let Ok(Some(line)) = lines.next_line().await {
-        println!("({}) {}", line.source().display(), line.line());
+        if show_source {
+            println!("({}) {}", line.source().display(), line.line());
+        } else {
+            println!("{}", line.line());
+        }
     }
 
     Ok(())
