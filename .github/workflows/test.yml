@@ -3,7 +3,7 @@ name: Test
 on: [push, pull_request]
 
 jobs:
-  test:
+  unit:
     name: cargo test
     runs-on: ${{ matrix.os }}
     strategy:
@@ -21,3 +21,18 @@ jobs:
 
       - name: Run cargo test
         run: cargo test -- --test-threads=1
+
+  integration:
+    name: integration test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Run test-logrotate.sh
+        run: tests/test-logrotate.sh
