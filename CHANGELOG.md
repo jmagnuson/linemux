@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Muxed events: include paths in remove events
 - Update `notify` to `5.0.0-pre.14` to allow `kqueue` support
 - Switch OSX notification backend from `fsevents` to `kqueue`
+- Store `Watcher` as a trait object to allow runtime variance of the
+  notification backend.
 
 ## [0.2.3] - 2021-07-31
 
