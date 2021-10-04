@@ -15,6 +15,7 @@ use tokio::sync::mpsc;
 use tokio_ as tokio;
 
 type EventStream = mpsc::UnboundedReceiver<Result<notify::Event, notify::Error>>;
+type BoxedWatcher = Box<dyn notify::Watcher + Send + Sync + Unpin + 'static>;
 
 fn notify_to_io_error(e: notify::Error) -> io::Error {
     match e.kind {
@@ -35,7 +36,7 @@ fn notify_to_io_error(e: notify::Error) -> io::Error {
 ///
 /// [`notify::Watcher`]: https://docs.rs/notify/5.0.0-pre.2/notify/trait.Watcher.html
 pub struct MuxedEvents {
-    inner: notify::RecommendedWatcher,
+    inner: BoxedWatcher,
     watched_directories: HashMap<PathBuf, usize>,
     /// Files that are successfully being watched
     watched_files: HashSet<PathBuf>,
@@ -69,7 +70,7 @@ impl MuxedEvents {
         .map_err(notify_to_io_error)?;
 
         Ok(MuxedEvents {
-            inner,
+            inner: Box::new(inner),
             watched_directories: HashMap::new(),
             watched_files: HashSet::new(),
             pending_watched_files: HashSet::new(),
@@ -86,13 +87,13 @@ impl MuxedEvents {
             || self.watched_directories.contains_key(&path.to_path_buf())
     }
 
-    fn watch(watcher: &mut notify::RecommendedWatcher, path: &Path) -> io::Result<()> {
+    fn watch(watcher: &mut dyn notify::Watcher, path: &Path) -> io::Result<()> {
         watcher
             .watch(path, notify::RecursiveMode::NonRecursive)
             .map_err(notify_to_io_error)
     }
 
-    fn unwatch(watcher: &mut notify::RecommendedWatcher, path: &Path) -> io::Result<()> {
+    fn unwatch(watcher: &mut dyn notify::Watcher, path: &Path) -> io::Result<()> {
         watcher.unwatch(path).map_err(notify_to_io_error)
     }
 
@@ -103,7 +104,7 @@ impl MuxedEvents {
         // duplicate events if called multiple times.
         if !self.watch_exists(path_ref) {
             NotifyWatcher::watch(
-                &mut self.inner,
+                self.inner.as_mut(),
                 path_ref,
                 notify::RecursiveMode::NonRecursive,
             )
@@ -128,7 +129,7 @@ impl MuxedEvents {
                 1 => {
                     // Remove from map first in case `unwatch` fails.
                     self.watched_directories.remove(path_ref);
-                    Self::unwatch(&mut self.inner, path_ref)?;
+                    Self::unwatch(self.inner.as_mut(), path_ref)?;
                 }
                 _ => {
                     let new_count = self
@@ -187,7 +188,7 @@ impl MuxedEvents {
             self.add_directory(&parent)?;
             self.pending_watched_files.insert(path.clone());
         } else {
-            Self::watch(&mut self.inner, &path)?;
+            Self::watch(self.inner.as_mut(), &path)?;
 
             self.watched_files.insert(path.clone());
         }
