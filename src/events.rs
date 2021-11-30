@@ -231,7 +231,11 @@ impl MuxedEvents {
                 let _ = self._add_file(path);
             }
 
-            self.watched_files.contains(path)
+            if event_kind.is_remove() {
+                self.pending_watched_files.contains(path)
+            } else {
+                self.watched_files.contains(path)
+            }
         });
     }
 
@@ -427,7 +431,33 @@ mod tests {
         tokio::fs::remove_file(&file_path1).await.unwrap();
 
         // Flush possible file deletion event
-        let _res = timeout(Duration::from_millis(100), watcher.next()).await;
+        let expected_event = {
+            let remove_kind = if cfg!(target_os = "windows") {
+                notify::event::RemoveKind::Any
+            } else {
+                notify::event::RemoveKind::File
+            };
+            notify::Event::new(notify::EventKind::Remove(remove_kind))
+                .add_path(absolutify(file_path1, true).unwrap())
+        };
+
+        let mut events = vec![];
+        tokio::time::timeout(tokio::time::Duration::from_millis(2000), async {
+            loop {
+                let event = watcher.next_event().await.unwrap().unwrap();
+                if event == expected_event {
+                    break;
+                }
+                events.push(event);
+            }
+        })
+        .await
+        .unwrap_or_else(|_| {
+            panic!(
+                "Did not receive expected event, events received: {:?}",
+                events
+            );
+        });
 
         assert_eq!(watcher.watched_files.len(), 1);
         assert!(watcher.watched_directories.contains_key(&pathclone));

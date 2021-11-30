@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [Unreleased]
 
+### Changed
+- Muxed events: include paths in remove events
+
 ## [0.2.3] - 2021-07-31
 
 ### Fixed
