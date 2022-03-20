@@ -210,7 +210,7 @@ impl MuxedLines {
         let this = self.project();
 
         let mut events = this.events;
-        let mut inner = this.inner;
+        let inner = this.inner;
         let stream_state = this.stream_state;
 
         loop {
@@ -225,7 +225,7 @@ impl MuxedLines {
                     )
                 }
                 StreamState::HandleEvent(ref mut event, ref mut state) => {
-                    let res = ready!(poll_handle_event(&mut inner, event, state, cx));
+                    let res = ready!(poll_handle_event(inner, event, state, cx));
                     match res {
                         Ok(()) => {
                             if event.paths.is_empty() {
