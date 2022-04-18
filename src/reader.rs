@@ -13,7 +13,6 @@ use futures_util::stream::Stream;
 use pin_project_lite::pin_project;
 use tokio::fs::{metadata, File};
 use tokio::io::{AsyncBufReadExt, AsyncSeekExt, BufReader, Lines};
-use tokio_ as tokio;
 
 type LineReader = Lines<BufReader<File>>;
 
@@ -538,7 +537,6 @@ mod tests {
     use tempfile::tempdir;
     use tokio::fs::File;
     use tokio::io::AsyncWriteExt;
-    use tokio_ as tokio;
 
     #[tokio::test]
     async fn test_is_send() {

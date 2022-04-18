@@ -7,7 +7,6 @@
 //!
 //! ```no_run
 //! use linemux::MuxedLines;
-//! # use tokio_ as tokio;
 //!
 //! #[tokio::main]
 //! async fn main() -> std::io::Result<()> {

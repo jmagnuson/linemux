@@ -42,7 +42,3 @@ pub async fn test_logrotate() {
     assert!(status.unwrap().success());
     assert_eq!(line_vals_expected, line_vals);
 }
-
-// Ignore this (not necessary for normal application use)
-// Ref: https://github.com/tokio-rs/tokio/issues/2312
-use tokio_ as tokio;
