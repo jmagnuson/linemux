@@ -177,7 +177,7 @@ impl MuxedEvents {
     /// Returns the canonicalized version of the path originally supplied, to
     /// match against the one contained in each `notify::Event` received.
     /// Otherwise returns `Error` for a given registration failure.
-    pub async fn add_file_initial_event(
+    pub(crate) async fn add_file_initial_event(
         &mut self,
         path: impl Into<PathBuf>,
     ) -> io::Result<PathBuf> {
