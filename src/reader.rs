@@ -183,11 +183,16 @@ impl MuxedLines {
     }
 
     /// private implementation of add_file and add_file_from_start
-    async fn _add_file(&mut self, path: impl Into<PathBuf>, from_start: bool) -> io::Result<PathBuf> {
+    async fn _add_file(
+        &mut self,
+        path: impl Into<PathBuf>,
+        from_start: bool,
+    ) -> io::Result<PathBuf> {
         let source = path.into();
-        let source = match from_start {
-            true => self.events.add_file_initial_event(&source).await?,
-            false => self.events.add_file(&source).await?,
+        let source = if from_start {
+            self.events.add_file_initial_event(&source).await?
+        } else {
+            self.events.add_file(&source).await?
         };
 
         if self.reader_exists(&source) {
