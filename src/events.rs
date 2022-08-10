@@ -174,7 +174,10 @@ impl MuxedEvents {
     /// Returns the canonicalized version of the path originally supplied, to
     /// match against the one contained in each `notify::Event` received.
     /// Otherwise returns `Error` for a given registration failure.
-    pub async fn add_file_initial_event(&mut self, path: impl Into<PathBuf>) -> io::Result<PathBuf> {
+    pub async fn add_file_initial_event(
+        &mut self,
+        path: impl Into<PathBuf>,
+    ) -> io::Result<PathBuf> {
         self._add_file(path, true)
     }
 
@@ -213,11 +216,13 @@ impl MuxedEvents {
                 // This is useful if we wanted earlier lines in the file than
                 // where it is up to now, and we want those events before the
                 // next time this file is modified.
-                self.event_stream_sender.send(Ok(notify::Event {
-                    attrs: notify::event::EventAttributes::new(),
-                    kind: notify::EventKind::Create(notify::event::CreateKind::File),
-                    paths: vec![path.clone()],
-                })).ok();
+                self.event_stream_sender
+                    .send(Ok(notify::Event {
+                        attrs: notify::event::EventAttributes::new(),
+                        kind: notify::EventKind::Create(notify::event::CreateKind::File),
+                        paths: vec![path.clone()],
+                    }))
+                    .ok();
                 // Errors here are not anything to worry about, so we .ok();
                 // An error would just mean no one is listening.
             }
