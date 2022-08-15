@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [Unreleased]
 
+## [0.2.4] - 2022-08-15
+
 ### Changed
 - Muxed events: include paths in remove events
 - Update `notify` to `5.0.0-pre.16` to allow `kqueue` support
@@ -66,7 +68,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 ### Added
 - Initial library features
 
-[Unreleased]: https://github.com/jmagnuson/linemux/compare/0.2.3...master
+[Unreleased]: https://github.com/jmagnuson/linemux/compare/0.2.4...master
+[0.2.4]: https://github.com/jmagnuson/linemux/compare/0.2.3...0.2.4
 [0.2.3]: https://github.com/jmagnuson/linemux/compare/0.2.2...0.2.3
 [0.2.2]: https://github.com/jmagnuson/linemux/compare/0.2.1...0.2.2
 [0.2.1]: https://github.com/jmagnuson/linemux/compare/0.2.0...0.2.1
