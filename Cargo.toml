@@ -21,7 +21,7 @@ tokio = ["tokio_"]
 
 [dependencies]
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
-notify = { version = "5.0.0-pre.14", default-features = false, features = ["macos_kqueue"] }
+notify = { version = "=5.0.0-pre.16", default-features = false, features = ["macos_kqueue", "crossbeam-channel"] }
 pin-project-lite = "0.2"
 tokio_ = { package = "tokio", version = "1", features = ["fs", "io-util", "sync", "time"], optional = true }
 

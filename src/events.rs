@@ -60,13 +60,16 @@ impl MuxedEvents {
     /// Constructs a new `MuxedEvents` instance.
     pub fn new() -> io::Result<Self> {
         let (tx, rx) = mpsc::unbounded_channel();
-        let inner: notify::RecommendedWatcher = notify::RecommendedWatcher::new(move |res| {
-            // The only way `send` can fail is if the receiver is dropped,
-            // and `MuxedEvents` controls both. `unwrap` is not used,
-            // however, since `Drop` idiosyncrasies could otherwise result
-            // in a panic.
-            let _ = tx.send(res);
-        })
+        let inner: notify::RecommendedWatcher = notify::RecommendedWatcher::new(
+            move |res| {
+                // The only way `send` can fail is if the receiver is dropped,
+                // and `MuxedEvents` controls both. `unwrap` is not used,
+                // however, since `Drop` idiosyncrasies could otherwise result
+                // in a panic.
+                let _ = tx.send(res);
+            },
+            notify::Config::default(),
+        )
         .map_err(notify_to_io_error)?;
 
         Ok(MuxedEvents {
