@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [Unreleased]
 
+### Added
+- Add `MuxedLines::add_file_from_start`.
+
 ## [0.2.4] - 2022-08-15
 
 ### Changed
