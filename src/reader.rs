@@ -168,9 +168,32 @@ impl MuxedLines {
     /// match against the one contained in each `Line` received. Otherwise
     /// returns `io::Error` for a given registration failure.
     pub async fn add_file(&mut self, path: impl Into<PathBuf>) -> io::Result<PathBuf> {
-        let source = path.into();
+        self._add_file(path, false).await
+    }
 
-        let source = self.events.add_file(&source).await?;
+    /// Adds a given file to the lines watch, allowing for files which do not
+    /// yet exist. Starts reading the file from the beginning if one already
+    /// exists
+    ///
+    /// Returns the canonicalized version of the path originally supplied, to
+    /// match against the one contained in each `Line` received. Otherwise
+    /// returns `io::Error` for a given registration failure.
+    pub async fn add_file_from_start(&mut self, path: impl Into<PathBuf>) -> io::Result<PathBuf> {
+        self._add_file(path, true).await
+    }
+
+    /// private implementation of add_file and add_file_from_start
+    async fn _add_file(
+        &mut self,
+        path: impl Into<PathBuf>,
+        from_start: bool,
+    ) -> io::Result<PathBuf> {
+        let source = path.into();
+        let source = if from_start {
+            self.events.add_file_initial_event(&source).await?
+        } else {
+            self.events.add_file(&source).await?
+        };
 
         if self.reader_exists(&source) {
             return Ok(source);
@@ -182,7 +205,11 @@ impl MuxedLines {
             // If this fails it's a bug
             assert!(didnt_exist);
         } else {
-            let size = metadata(&source).await?.len();
+            let size = if from_start {
+                0
+            } else {
+                metadata(&source).await?.len()
+            };
 
             let reader = new_linereader(&source, Some(size)).await?;
 
@@ -934,5 +961,52 @@ mod tests {
             .unwrap();
         assert!(line1.source().to_str().unwrap().contains("bar.txt"));
         assert_eq!(line1.line(), "now bar");
+    }
+
+    async fn read_line(lines: &mut MuxedLines) -> Line {
+        use tokio::time::timeout;
+        timeout(Duration::from_millis(100), lines.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_streaming_from_start() {
+        let tmp_dir = tempdir().unwrap();
+        let tmp_dir_path = tmp_dir.path();
+
+        // file starts off with "start\n"
+        let file_path = tmp_dir_path.join("foo.txt");
+        let mut file = File::create(&file_path)
+            .await
+            .expect("Failed to create file");
+        file.write_all(b"start\n").await.expect("Failed to write");
+        file.sync_all().await.expect("Failed to sync");
+
+        let mut lines = MuxedLines::new().unwrap();
+        lines.add_file(&file_path).await.unwrap();
+
+        // add some extra data into the file
+        file.write_all(b"foo\n").await.unwrap();
+        file.sync_all().await.unwrap();
+
+        // Now the files should be readable
+        assert_eq!(lines.inner.readers.len(), 1);
+
+        file.shutdown().await.unwrap();
+
+        // assert that we don't read "start", since we didn't use `add_file_from_start`
+        let line1 = read_line(&mut lines).await;
+        assert!(line1.source().to_str().unwrap().contains("foo.txt"));
+        assert_eq!(line1.line(), "foo");
+
+        // assert that we do indeed read "start" by using `add_file_from_start`
+        let mut lines = MuxedLines::new().unwrap();
+        lines.add_file_from_start(&file_path).await.unwrap();
+        let line1 = read_line(&mut lines).await;
+        assert!(line1.source().to_str().unwrap().contains("foo.txt"));
+        assert_eq!(line1.line(), "start");
     }
 }
