@@ -438,27 +438,39 @@ mod tests {
         // Flush possible directory creation event
         let _res = timeout(Duration::from_secs(1), watcher.next()).await;
 
-        let mut _file1 = File::create(&file_path1)
-            .await
-            .expect("Failed to create file");
-        let _file2 = File::create(&file_path2)
-            .await
-            .expect("Failed to create file");
-
         let expected_event = if cfg!(target_os = "windows") {
             notify::EventKind::Create(notify::event::CreateKind::Any)
         } else {
             notify::EventKind::Create(notify::event::CreateKind::File)
         };
 
-        let event1 = watcher.next().await.unwrap().unwrap();
+        let mut _file1 = File::create(&file_path1)
+            .await
+            .expect("Failed to create file");
+        let event1 = timeout(Duration::from_secs(1), watcher.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
         assert_eq!(event1.kind, expected_event,);
-        let event2 = watcher.next_event().await.unwrap().unwrap();
+
+        let _file2 = File::create(&file_path2)
+            .await
+            .expect("Failed to create file");
+        let event2 = timeout(Duration::from_secs(1), watcher.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
         assert_eq!(event2.kind, expected_event,);
 
         // Now the files should be watched properly
-        assert_eq!(watcher.watched_files.len(), 2);
-        assert!(!watcher.watched_directories.contains_key(&pathclone));
+        assert_eq!(watcher.watched_files.len(), 2, "\nwatcher: {:?}", &watcher);
+        assert!(
+            !watcher.watched_directories.contains_key(&pathclone),
+            "\nwatcher: {:?}",
+            &watcher
+        );
 
         // Explicitly close file to allow deletion event to propagate
         _file1.sync_all().await.unwrap();
@@ -471,7 +483,7 @@ mod tests {
 
         // Flush possible file deletion event
         let expected_event = {
-            let remove_kind = if cfg!(target_os = "windows") {
+            let remove_kind = if cfg!(target_os = "windows") || cfg!(target_os = "macos") {
                 notify::event::RemoveKind::Any
             } else {
                 notify::event::RemoveKind::File
@@ -498,8 +510,12 @@ mod tests {
             );
         });
 
-        assert_eq!(watcher.watched_files.len(), 1);
-        assert!(watcher.watched_directories.contains_key(&pathclone));
+        assert_eq!(watcher.watched_files.len(), 1, "\nwatcher: {:?}", &watcher);
+        assert!(
+            watcher.watched_directories.contains_key(&pathclone),
+            "\nwatcher: {:?}",
+            &watcher
+        );
 
         drop(watcher);
     }
