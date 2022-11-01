@@ -2,7 +2,7 @@
 name = "linemux"
 version = "0.2.4"
 authors = ["Jon Magnuson <jon.magnuson@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "A library providing asynchronous, multiplexed tailing for (namely log) files."
 documentation = "https://docs.rs/linemux"
 repository = "https://github.com/jmagnuson/linemux"
