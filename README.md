@@ -52,7 +52,7 @@ presents itself.
 
 ## Minimum Supported Rust Version (MSRV)
 
-This crate is guaranteed to compile on stable Rust 1.47 and up.
+This crate is guaranteed to compile on stable Rust 1.60 and up.
 
 ## License
 

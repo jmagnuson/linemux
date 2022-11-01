@@ -12,7 +12,6 @@ use futures_util::ready;
 use futures_util::stream::Stream;
 use notify::Watcher as NotifyWatcher;
 use tokio::sync::mpsc;
-use tokio_ as tokio;
 
 type BoxedWatcher = Box<dyn notify::Watcher + Send + Sync + Unpin + 'static>;
 type EventStream = mpsc::UnboundedReceiver<Result<notify::Event, notify::Error>>;
@@ -387,7 +386,6 @@ mod tests {
     use tempfile::tempdir;
     use tokio::fs::File;
     use tokio::time::timeout;
-    use tokio_ as tokio;
 
     #[tokio::test]
     async fn test_add_directory() {
