@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ### Added
 - Add `MuxedLines::add_file_from_start`.
+- 
+### Changed
+- Update `notify` to `5.0.0`
+- Bump MSRV from 1.47 to 1.60, to take advantage of `dep:` syntax
+- Bump Rust edition to 2021
 
 ## [0.2.4] - 2022-08-15
 

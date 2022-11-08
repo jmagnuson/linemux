@@ -2,7 +2,7 @@
 name = "linemux"
 version = "0.2.4"
 authors = ["Jon Magnuson <jon.magnuson@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "A library providing asynchronous, multiplexed tailing for (namely log) files."
 documentation = "https://docs.rs/linemux"
 repository = "https://github.com/jmagnuson/linemux"
@@ -10,6 +10,7 @@ readme = "README.md"
 keywords = ["tail", "log", "watch", "fs", "events"]
 license = "MIT OR Apache-2.0"
 categories = ["asynchronous", "filesystem"]
+rust-version = "1.60"
 
 [badges]
 travis-ci = { repository = "jmagnuson/linemux", branch = "master" }
@@ -17,15 +18,15 @@ codecov = { repository = "jmagnuson/linemux", branch = "master", service = "gith
 
 [features]
 default = ["tokio"]
-tokio = ["tokio_"]
+tokio = ["dep:tokio"]
 
 [dependencies]
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
-notify = { version = "=5.0.0-pre.16", default-features = false, features = ["macos_kqueue", "crossbeam-channel"] }
+notify = { version = "5", default-features = false, features = ["macos_kqueue", "crossbeam-channel"] }
 pin-project-lite = "0.2"
-tokio_ = { package = "tokio", version = "1", features = ["fs", "io-util", "sync", "time"], optional = true }
+tokio = { version = "1", features = ["fs", "io-util", "sync", "time"], optional = true }
 
 [dev-dependencies]
 doc-comment = "0.3"
 tempfile = "3.1"
-tokio_ = { package = "tokio", version = "1", features = ["macros", "process", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "process", "rt-multi-thread"] }
