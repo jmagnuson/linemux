@@ -206,7 +206,7 @@ impl MuxedEvents {
                 io::Error::new(io::ErrorKind::InvalidInput, "File needs a parent directory")
             })?;
 
-            self.add_directory(&parent)?;
+            self.add_directory(parent)?;
             self.pending_watched_files.insert(path.clone());
         } else {
             Self::watch(self.inner.as_mut(), &path)?;
