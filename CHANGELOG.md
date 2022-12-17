@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [Unreleased]
 
+## [0.3.0] - 2022-12-17
+
 ### Added
 - Add `MuxedLines::add_file_from_start`.
-- 
+
 ### Changed
 - Update `notify` to `5.0.0`
 - Bump MSRV from 1.47 to 1.60, to take advantage of `dep:` syntax
