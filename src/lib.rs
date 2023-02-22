@@ -37,6 +37,7 @@ mod events;
 mod reader;
 
 pub use events::MuxedEvents;
+pub use notify::event;
 pub use reader::{Line, MuxedLines};
 
 #[cfg(doctest)]
