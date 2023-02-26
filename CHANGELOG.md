@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [Unreleased]
 
+### Added
+- Re-export notify `event` module
+
 ## [0.3.0] - 2022-12-17
 
 ### Added
@@ -78,7 +81,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 ### Added
 - Initial library features
 
-[Unreleased]: https://github.com/jmagnuson/linemux/compare/0.2.4...master
+[Unreleased]: https://github.com/jmagnuson/linemux/compare/0.3.0...master
+[0.3.0]: https://github.com/jmagnuson/linemux/compare/0.2.4...0.3.0
 [0.2.4]: https://github.com/jmagnuson/linemux/compare/0.2.3...0.2.4
 [0.2.3]: https://github.com/jmagnuson/linemux/compare/0.2.2...0.2.3
 [0.2.2]: https://github.com/jmagnuson/linemux/compare/0.2.1...0.2.2
