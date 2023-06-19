@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 ### Added
 - Re-export notify `event` module
 
+### Changed
+- Update `notify` to `^6.0.0`
+
 ## [0.3.0] - 2022-12-17
 
 ### Added
