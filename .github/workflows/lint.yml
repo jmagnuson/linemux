@@ -38,8 +38,8 @@ jobs:
       - name: Run rust-clippy
         run:
           cargo clippy
-          --all --bins --examples --tests --benches -- -Wclippy::all -Dwarnings
-          --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
+          --all --bins --examples --tests --benches --message-format=json -- -Wclippy::all -Dwarnings
+          | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
         continue-on-error: true
 
       - name: Upload analysis results to GitHub
