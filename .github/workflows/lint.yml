@@ -36,8 +36,6 @@ jobs:
         run: cargo install clippy-sarif sarif-fmt
 
       - name: Run rust-clippy
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
         run:
           cargo clippy
           --all --bins --examples --tests --benches -- -Wclippy::all -Dwarnings
