@@ -42,3 +42,6 @@ pub use reader::{Line, MuxedLines};
 
 #[cfg(doctest)]
 doc_comment::doctest!("../README.md");
+
+#[cfg(not(any(feature = "tokio")))]
+compile_error!("At least one runtime feature must be enabled from: [\"tokio\"]");
