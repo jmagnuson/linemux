@@ -20,6 +20,13 @@ Add linemux to your `Cargo.toml` with:
 linemux = "0.3"
 ```
 
+### Feature flags
+
+Note that building with `default-features: false` must also be coupled with activating a desired
+runtime (currently just `tokio`, but eventually others will be supported).
+
+- `tokio`: Use the tokio runtime (default).
+
 ## Example
 
 ```rust,no_run
