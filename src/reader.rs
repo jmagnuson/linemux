@@ -332,8 +332,10 @@ impl StreamState {
         old_state
     }
 
-    #[allow(clippy::match_like_matches_macro)] // otherwise bumps MSRV
+    // #[allow(clippy::match_like_matches_macro)] // otherwise bumps MSRV
     pub fn is_transient(&self) -> bool {
+        let a_thing = 0usize;
+
         if let StreamState::Events = self {
             false
         } else {
