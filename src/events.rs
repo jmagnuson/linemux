@@ -454,9 +454,13 @@ mod tests {
             .unwrap();
         assert_eq!(event1.kind, expected_event,);
 
-        // we get another 2 access(open) events
+        // we get another access(open) event
         watcher.next().await;
-        watcher.next().await;
+
+        // 2nd one for linux
+        if cfg!(target_os = "linux") {
+            watcher.next().await;
+        }
 
         let _file2 = File::create(&file_path2)
             .await
