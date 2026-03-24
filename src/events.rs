@@ -454,25 +454,46 @@ mod tests {
 
         // we get another access(open) event
         watcher.next().await;
+        // TODO: just flush the second one? I can see it in the FOUND events
 
         let _file2 = File::create(&file_path2)
             .await
             .expect("Failed to create file");
 
-        // throw away access event
-        let _event2 = timeout(Duration::from_secs(1), watcher.next())
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
+        // Wait for file creation event
+        let fut = async  {
+            loop {
+                let _event2 = watcher.next()
+                    .await
+                    .unwrap()
+                    .unwrap();
 
-        // this should be the create event
-        let event2 = timeout(Duration::from_secs(1), watcher.next())
+                //println!("FOUND: {:?}", _event2);
+                if _event2.kind == expected_event {
+                    return _event2;
+                }
+            }
+        };
+        timeout(Duration::from_secs(1), fut)
             .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        assert_eq!(event2.kind, expected_event,);
+            .expect("Did not receive expected event");
+
+        // Flush the remaining Access events
+        let fut = async  {
+            loop {
+                let _event2 = watcher.next()
+                    .await
+                    .unwrap()
+                    .unwrap();
+
+                //println!("FLUSH: {:?}", _event2);
+                if _event2.kind == expected_event {
+                    return _event2;
+                }
+            }
+        };
+        timeout(Duration::from_secs(1), fut)
+            .await.ok();
 
         // Now the files should be watched properly
         assert_eq!(watcher.watched_files.len(), 2, "\nwatcher: {:?}", &watcher);
