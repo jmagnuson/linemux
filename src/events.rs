@@ -455,17 +455,24 @@ mod tests {
         assert_eq!(event1.kind, expected_event,);
 
         // we get another access(open) event
-        watcher.next().await;
+        let _res = timeout(Duration::from_secs(1), watcher.next()).await;
+
+        // 2nd one for linux
+        if cfg!(target_os = "linux") {
+            let _res = timeout(Duration::from_secs(1), watcher.next()).await;
+        }
 
         let _file2 = File::create(&file_path2)
             .await
             .expect("Failed to create file");
+
+        // Wait for file creation event
         let event2 = timeout(Duration::from_secs(1), watcher.next())
             .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        assert_eq!(event2.kind, expected_event,);
+            .expect("Timed out")
+            .expect("Stream ended prematurely")
+            .expect("Did not receive expected event");
+        assert_eq!(event2.kind, expected_event);
 
         // Now the files should be watched properly
         assert_eq!(watcher.watched_files.len(), 2, "\nwatcher: {:?}", &watcher);
@@ -476,13 +483,22 @@ mod tests {
         );
 
         // Explicitly close file to allow deletion event to propagate
-        _file1.sync_all().await.unwrap();
-        _file1.shutdown().await.unwrap();
+        timeout(Duration::from_secs(1), _file1.sync_all())
+            .await
+            .unwrap()
+            .unwrap();
+        timeout(Duration::from_secs(1), _file1.shutdown())
+            .await
+            .unwrap()
+            .unwrap();
         drop(_file1);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Deleting a file should throw it back into pending
-        tokio::fs::remove_file(&file_path1).await.unwrap();
+        timeout(Duration::from_secs(1), tokio::fs::remove_file(&file_path1))
+            .await
+            .unwrap()
+            .unwrap();
 
         // Flush possible file deletion event
         let expected_event = {
