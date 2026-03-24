@@ -460,7 +460,7 @@ mod tests {
             .expect("Failed to create file");
 
         // throw away access event
-        let event2 = timeout(Duration::from_secs(1), watcher.next())
+        let _event2 = timeout(Duration::from_secs(1), watcher.next())
             .await
             .unwrap()
             .unwrap()
