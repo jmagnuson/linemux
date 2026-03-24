@@ -458,6 +458,15 @@ mod tests {
         let _file2 = File::create(&file_path2)
             .await
             .expect("Failed to create file");
+
+        // throw away access event
+        let event2 = timeout(Duration::from_secs(1), watcher.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+
+        // this should be the create event
         let event2 = timeout(Duration::from_secs(1), watcher.next())
             .await
             .unwrap()
