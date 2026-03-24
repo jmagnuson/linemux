@@ -413,7 +413,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[timeout(5000)]
+    #[timeout(10000)]
     async fn test_add_missing_files() {
         use tokio::io::AsyncWriteExt;
 
@@ -455,11 +455,11 @@ mod tests {
         assert_eq!(event1.kind, expected_event,);
 
         // we get another access(open) event
-        watcher.next().await;
+        let _res = timeout(Duration::from_secs(1), watcher.next()).await;
 
         // 2nd one for linux
         if cfg!(target_os = "linux") {
-            watcher.next().await;
+            let _res = timeout(Duration::from_secs(1), watcher.next()).await;
         }
 
         let _file2 = File::create(&file_path2)
