@@ -382,6 +382,7 @@ mod tests {
     use super::MuxedEvents;
     use crate::events::notify_to_io_error;
     use futures_util::stream::StreamExt;
+    use ntest::timeout;
     use std::time::Duration;
     use tempfile::tempdir;
     use tokio::fs::File;
@@ -412,6 +413,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[timeout(10000)]
     async fn test_add_missing_files() {
         use tokio::io::AsyncWriteExt;
 
@@ -522,6 +524,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[timeout(5000)]
     async fn test_empty_next_event() {
         let mut watcher = MuxedEvents::new().unwrap();
 
@@ -531,6 +534,7 @@ mod tests {
     }
 
     #[test]
+    #[timeout(5000)]
     fn test_notify_error() {
         use std::io;
 
