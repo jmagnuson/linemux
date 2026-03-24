@@ -483,13 +483,22 @@ mod tests {
         );
 
         // Explicitly close file to allow deletion event to propagate
-        _file1.sync_all().await.unwrap();
-        _file1.shutdown().await.unwrap();
+        timeout(Duration::from_secs(1), _file1.sync_all())
+            .await
+            .unwrap()
+            .unwrap();
+        timeout(Duration::from_secs(1), _file1.shutdown())
+            .await
+            .unwrap()
+            .unwrap();
         drop(_file1);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Deleting a file should throw it back into pending
-        tokio::fs::remove_file(&file_path1).await.unwrap();
+        timeout(Duration::from_secs(1), tokio::fs::remove_file(&file_path1))
+            .await
+            .unwrap()
+            .unwrap();
 
         // Flush possible file deletion event
         let expected_event = {
