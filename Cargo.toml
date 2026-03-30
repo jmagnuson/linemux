@@ -22,11 +22,12 @@ tokio = ["dep:tokio"]
 
 [dependencies]
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
-notify = { version = "6", default-features = false, features = ["macos_kqueue", "crossbeam-channel"] }
+notify = { version = "8", default-features = false, features = ["macos_kqueue", "crossbeam-channel"] }
 pin-project-lite = "0.2"
 tokio = { version = "1", features = ["fs", "io-util", "sync", "time"], optional = true }
 
 [dev-dependencies]
 doc-comment = "0.3"
+ntest = "0.9"
 tempfile = "3.1"
 tokio = { version = "1", features = ["macros", "process", "rt-multi-thread"] }

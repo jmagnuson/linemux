@@ -562,6 +562,7 @@ impl Stream for MuxedLines {
 mod tests {
     use super::*;
     use futures_util::stream::StreamExt;
+    use ntest::timeout;
     use std::time::Duration;
     use tempfile::tempdir;
     use tokio::fs::File;
@@ -605,6 +606,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[timeout(5000)]
     async fn test_inner_fns() {
         let dir = tempdir().unwrap();
         let source_path = dir.path().join("foo.txt");
@@ -680,6 +682,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[timeout(5000)]
     async fn test_add_missing_files() {
         use tokio::time::timeout;
 
@@ -774,6 +777,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[timeout(5000)]
     async fn test_file_rollover() {
         use tokio::time::timeout;
 
@@ -851,6 +855,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[timeout(5000)]
     async fn test_ops_in_transient_state() {
         use futures_util::future::poll_fn;
         use futures_util::stream::Stream;
@@ -904,6 +909,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[timeout(5000)]
     async fn test_empty_next_line() {
         let mut watcher = MuxedLines::new().unwrap();
 
@@ -913,6 +919,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[timeout(5000)]
     async fn test_add_existing_file() {
         use tokio::time::timeout;
 
@@ -979,6 +986,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[timeout(5000)]
     async fn test_streaming_from_start() {
         let tmp_dir = tempdir().unwrap();
         let tmp_dir_path = tmp_dir.path();
