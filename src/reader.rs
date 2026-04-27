@@ -12,9 +12,62 @@ use futures_util::ready;
 use futures_util::stream::Stream;
 use pin_project_lite::pin_project;
 use tokio::fs::{metadata, File};
-use tokio::io::{AsyncBufReadExt, AsyncSeekExt, BufReader, Lines};
+use tokio::io::{AsyncBufRead, AsyncSeekExt, BufReader};
 
-type LineReader = Lines<BufReader<File>>;
+#[derive(Debug)]
+struct LineReader {
+    reader: BufReader<File>,
+    buffer: Vec<u8>,
+}
+
+impl LineReader {
+    fn new(reader: File) -> Self {
+        LineReader {
+            reader: BufReader::new(reader),
+            buffer: Vec::new(),
+        }
+    }
+
+    fn poll_next_line(
+        &mut self,
+        cx: &mut task::Context<'_>,
+    ) -> task::Poll<io::Result<Option<String>>> {
+        loop {
+            let (consume_len, found_newline) = {
+                let available = ready!(Pin::new(&mut self.reader).poll_fill_buf(cx))?;
+
+                if available.is_empty() {
+                    return task::Poll::Ready(Ok(None));
+                }
+
+                let found_newline = available.iter().position(|b| *b == b'\n');
+                let consume_len = found_newline.map_or(available.len(), |pos| pos + 1);
+
+                self.buffer.extend_from_slice(&available[..consume_len]);
+                (consume_len, found_newline.is_some())
+            };
+
+            Pin::new(&mut self.reader).consume(consume_len);
+
+            if found_newline {
+                self.buffer.pop();
+                if self.buffer.last() == Some(&b'\r') {
+                    self.buffer.pop();
+                }
+
+                let bytes = std::mem::take(&mut self.buffer);
+                let line = String::from_utf8(bytes).map_err(|e| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("stream did not contain valid UTF-8: {}", e),
+                    )
+                })?;
+
+                return task::Poll::Ready(Ok(Some(line)));
+            }
+        }
+    }
+}
 
 async fn new_linereader(path: impl AsRef<Path>, seek_pos: Option<u64>) -> io::Result<LineReader> {
     let path = path.as_ref();
@@ -22,9 +75,8 @@ async fn new_linereader(path: impl AsRef<Path>, seek_pos: Option<u64>) -> io::Re
     if let Some(pos) = seek_pos {
         reader.seek(io::SeekFrom::Start(pos)).await?;
     }
-    let reader = BufReader::new(reader).lines();
 
-    Ok(reader)
+    Ok(LineReader::new(reader))
 }
 
 macro_rules! unwrap_or {
@@ -267,7 +319,7 @@ impl MuxedLines {
                 StreamState::ReadLines(paths, ref mut path_index) => {
                     if let Some(path) = paths.get(*path_index) {
                         if let Some(reader) = inner.readers.get_mut(path) {
-                            let res = ready!(Pin::new(reader).poll_next_line(cx));
+                            let res = ready!(reader.poll_next_line(cx));
 
                             match res {
                                 Ok(Some(line)) => {
@@ -983,6 +1035,71 @@ mod tests {
             .unwrap()
             .unwrap()
             .unwrap()
+    }
+
+    #[tokio::test]
+    #[timeout(5000)]
+    async fn test_incomplete_line_is_not_emitted() {
+        use tokio::time::timeout;
+
+        let tmp_dir = tempdir().unwrap();
+        let file_path = tmp_dir.path().join("foo.txt");
+
+        let mut file = File::create(&file_path)
+            .await
+            .expect("Failed to create file");
+
+        let mut lines = MuxedLines::new().unwrap();
+        lines.add_file(&file_path).await.unwrap();
+
+        file.write_all(b"partial").await.unwrap();
+        file.sync_all().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        assert!(
+            timeout(Duration::from_millis(100), lines.next_line())
+                .await
+                .is_err(),
+            "unterminated line should not be emitted",
+        );
+    }
+
+    #[tokio::test]
+    #[timeout(5000)]
+    async fn test_incomplete_line_is_buffered_until_newline() {
+        use tokio::time::timeout;
+
+        let tmp_dir = tempdir().unwrap();
+        let file_path = tmp_dir.path().join("foo.txt");
+
+        let mut file = File::create(&file_path)
+            .await
+            .expect("Failed to create file");
+
+        let mut lines = MuxedLines::new().unwrap();
+        lines.add_file(&file_path).await.unwrap();
+
+        file.write_all(b"partial").await.unwrap();
+        file.sync_all().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        assert!(
+            timeout(Duration::from_millis(100), lines.next_line())
+                .await
+                .is_err(),
+            "unterminated line should not be emitted",
+        );
+
+        file.write_all(b" line\n").await.unwrap();
+        file.sync_all().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let line = timeout(Duration::from_millis(100), lines.next_line())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(line.line(), "partial line");
     }
 
     #[tokio::test]
