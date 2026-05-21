@@ -663,6 +663,62 @@ mod tests {
         let _ = format!("{:?}", state);
     }
 
+    // Regression test for https://github.com/jmagnuson/linemux/issues/57.
+    //
+    // Reproduces the precise post-rotation bug state observed in production:
+    // `Inner::readers` is non-empty (so the `is_empty()` early-return at the
+    // top of `poll_next_line` is skipped) while `MuxedEvents::watched_files`
+    // is empty (so `poll_next_event` returns `Ready(Ok(None))`).
+    //
+    // Before this branch's fix, `unwrap_or_continue!` converted that `None`
+    // into `continue` and the inner loop busy-spun forever — no waker was
+    // ever registered. After the fix `poll_next_line` propagates
+    // `Poll::Ready(Ok(None))` and `MuxedLines::next_line` resolves to
+    // `Ok(None)`, letting the caller drive recovery (e.g. re-attaching
+    // watches or restarting).
+    #[tokio::test]
+    async fn regression_no_busy_spin_on_drained_watched_files() {
+        use tokio::time::timeout;
+
+        let dir = tempdir().unwrap();
+        let source_path = dir.path().join("foo.log");
+        {
+            let mut f = File::create(&source_path).await.unwrap();
+            f.write_all(b"existing-line\n").await.unwrap();
+            f.sync_all().await.unwrap();
+            f.shutdown().await.unwrap();
+        }
+
+        // Construct MuxedLines and put it into the bug state by hand:
+        //   * Inner has a reader for `foo.log`  → is_empty() = false
+        //   * MuxedEvents.watched_files is empty → poll_next_event returns
+        //                                          Ready(Ok(None))
+        //   * stream_state defaults to StreamState::Events (transient=false
+        //     under is_transient(), so the early-return at the top of
+        //     poll_next_line would normally fire — but only if
+        //     `MuxedLines::is_empty()` is true. Inner being non-empty keeps
+        //     us out of that branch and into the inner loop.)
+        let mut lines = MuxedLines::new().unwrap();
+        let linereader = new_linereader(&source_path, None).await.unwrap();
+        lines.inner.insert_reader(source_path.clone(), linereader);
+
+        // 500ms is far more than the patched code needs (it resolves in one
+        // poll). On the unpatched 0.3.0 inner loop this future never
+        // completes because no waker is registered.
+        let outcome = timeout(Duration::from_millis(500), lines.next_line()).await;
+
+        assert!(
+            outcome.is_ok(),
+            "next_line() did not resolve within 500ms — busy-spin regression"
+        );
+        let line = outcome.unwrap().expect("next_line() returned an error");
+        assert!(
+            line.is_none(),
+            "expected Ok(None) (end-of-stream) on drained watched_files, got {:?}",
+            line
+        );
+    }
+
     #[tokio::test]
     async fn test_add_directory() {
         let tmp_dir = tempdir().unwrap();
