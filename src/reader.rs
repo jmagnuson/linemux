@@ -242,9 +242,17 @@ impl MuxedLines {
         loop {
             let (new_state, maybe_line) = match stream_state {
                 StreamState::Events => {
-                    let event = unwrap_or_continue!(unwrap_or_continue!(ready!(events
-                        .as_mut()
-                        .poll_next(cx))));
+                    let event = match ready!(events.as_mut().poll_next(cx)) {
+                        None => {
+                            // Upstream stream exhausted (e.g. all watches dropped).
+                            // Return end-of-stream instead of `continue`-ing in a
+                            // tight loop without re-registering the waker.
+                            // See https://github.com/jmagnuson/linemux/issues/57
+                            return task::Poll::Ready(Ok(None));
+                        }
+                        Some(Err(_)) => continue,
+                        Some(Ok(event)) => event,
+                    };
                     (
                         StreamState::HandleEvent(event, HandleEventState::new()),
                         None,
